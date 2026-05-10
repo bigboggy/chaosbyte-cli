@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -13,13 +13,13 @@ type focus int
 const (
 	focusBranches focus = iota
 	focusFeed
-	focusInput
 )
 
 type mode int
 
 const (
 	modeNormal mode = iota
+	modeCompose
 	modeComment
 )
 
@@ -32,8 +32,8 @@ type model struct {
 	focus focus
 	mode  mode
 
-	commitInput  textinput.Model
-	commentInput textinput.Model
+	commitInput  textarea.Model
+	commentInput textarea.Model
 
 	width  int
 	height int
@@ -45,15 +45,19 @@ type model struct {
 type tickMsg time.Time
 
 func newModel() model {
-	ci := textinput.New()
-	ci.Placeholder = `commit -m "your message" (Enter to push)`
-	ci.Prompt = "$ "
-	ci.CharLimit = 200
+	ci := textarea.New()
+	ci.Placeholder = `what did you ship?  (Ctrl+S to push, Enter for newline, Esc to cancel)`
+	ci.Prompt = ""
+	ci.ShowLineNumbers = false
+	ci.CharLimit = 0
+	ci.SetHeight(8)
 
-	cm := textinput.New()
-	cm.Placeholder = "write a comment, Enter to post, Esc to cancel"
-	cm.Prompt = "> "
-	cm.CharLimit = 200
+	cm := textarea.New()
+	cm.Placeholder = "your reply..."
+	cm.Prompt = ""
+	cm.ShowLineNumbers = false
+	cm.CharLimit = 0
+	cm.SetHeight(6)
 
 	return model{
 		branches:     seedBranches(),
@@ -64,7 +68,7 @@ func newModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, tickEvery())
+	return tea.Batch(textarea.Blink, tickEvery())
 }
 
 func tickEvery() tea.Cmd {
@@ -94,11 +98,19 @@ func (m *model) setFlash(s string) {
 	m.flashAt = time.Now()
 }
 
+func (m model) popupTextareaSize() (w, h int) {
+	pw, _ := popupSize(m.width, m.height)
+	return pw - 4, 8
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		taW, _ := m.popupTextareaSize()
+		m.commitInput.SetWidth(taW)
+		m.commentInput.SetWidth(taW)
 		return m, nil
 
 	case tickMsg:
@@ -109,7 +121,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickEvery()
 
 	case tea.KeyMsg:
-		if m.mode == modeComment {
+		switch m.mode {
+		case modeCompose:
+			return m.updateCompose(msg)
+		case modeComment:
 			return m.updateCommentMode(msg)
 		}
 		return m.updateNormal(msg)
@@ -118,15 +133,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) updateCommentMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+func (m model) updateCompose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if isSubmitKey(msg.String()) {
+		text := strings.TrimRight(strings.TrimSpace(m.commitInput.Value()), "\n")
+		if text != "" {
+			b := m.currentBranch()
+			if b != nil {
+				b.Commits = append([]Commit{{
+					SHA:     fakeSHA(),
+					Author:  "you",
+					Message: text,
+					At:      time.Now(),
+				}}, b.Commits...)
+				m.commitIdx = 0
+				m.setFlash("pushed to " + b.Name)
+			}
+		}
+		m.commitInput.SetValue("")
+		m.commitInput.Blur()
 		m.mode = modeNormal
-		m.commentInput.Blur()
-		m.commentInput.SetValue("")
 		return m, nil
-	case "enter":
-		body := strings.TrimSpace(m.commentInput.Value())
+	}
+	if msg.String() == "esc" {
+		m.commitInput.SetValue("")
+		m.commitInput.Blur()
+		m.mode = modeNormal
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.commitInput, cmd = m.commitInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) updateCommentMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if isSubmitKey(msg.String()) {
+		body := strings.TrimRight(strings.TrimSpace(m.commentInput.Value()), "\n")
 		if body != "" {
 			c := m.currentCommit()
 			if c != nil {
@@ -143,73 +184,43 @@ func (m model) updateCommentMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 		return m, nil
 	}
+	if msg.String() == "esc" {
+		m.commentInput.SetValue("")
+		m.commentInput.Blur()
+		m.mode = modeNormal
+		return m, nil
+	}
 	var cmd tea.Cmd
 	m.commentInput, cmd = m.commentInput.Update(msg)
 	return m, cmd
 }
 
 func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.focus == focusInput {
-		switch msg.String() {
-		case "esc":
-			m.focus = focusFeed
-			m.commitInput.Blur()
-			return m, nil
-		case "tab":
-			m.focus = focusBranches
-			m.commitInput.Blur()
-			return m, nil
-		case "enter":
-			text := strings.TrimSpace(m.commitInput.Value())
-			if text != "" {
-				b := m.currentBranch()
-				if b != nil {
-					b.Commits = append([]Commit{{
-						SHA:     fakeSHA(),
-						Author:  "you",
-						Message: text,
-						At:      time.Now(),
-					}}, b.Commits...)
-					m.commitIdx = 0
-					m.setFlash("pushed to " + b.Name)
-				}
-				m.commitInput.SetValue("")
-			}
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.commitInput, cmd = m.commitInput.Update(msg)
-		return m, cmd
-	}
-
 	switch msg.String() {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 
 	case "tab":
-		switch m.focus {
-		case focusBranches:
+		if m.focus == focusBranches {
 			m.focus = focusFeed
-		case focusFeed:
-			m.focus = focusInput
-			m.commitInput.Focus()
+		} else {
+			m.focus = focusBranches
 		}
 		return m, nil
 
 	case "shift+tab":
-		switch m.focus {
-		case focusFeed:
+		if m.focus == focusFeed {
 			m.focus = focusBranches
-		case focusInput:
+		} else {
 			m.focus = focusFeed
-			m.commitInput.Blur()
 		}
 		return m, nil
 
-	case "i":
-		m.focus = focusInput
+	case "n", "i":
+		m.mode = modeCompose
+		m.commitInput.SetValue("")
 		m.commitInput.Focus()
-		return m, textinput.Blink
+		return m, textarea.Blink
 
 	case "j", "down":
 		if m.focus == focusBranches {
@@ -258,13 +269,22 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		if m.focus == focusFeed && m.currentCommit() != nil {
 			m.mode = modeComment
+			m.commentInput.SetValue("")
 			m.commentInput.Focus()
-			return m, textinput.Blink
+			return m, textarea.Blink
 		}
 		return m, nil
 	}
 
 	return m, nil
+}
+
+func isSubmitKey(s string) bool {
+	switch s {
+	case "ctrl+s", "ctrl+d", "ctrl+enter", "alt+enter":
+		return true
+	}
+	return false
 }
 
 func fakeSHA() string {
