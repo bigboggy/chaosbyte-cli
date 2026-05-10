@@ -36,8 +36,7 @@ var (
 				Padding(0, 1)
 
 	commitSHAStyle = lipgloss.NewStyle().
-			Foreground(colorWarn).
-			Bold(true)
+			Foreground(colorMuted)
 
 	commitAuthorStyle = lipgloss.NewStyle().
 				Foreground(colorOk)

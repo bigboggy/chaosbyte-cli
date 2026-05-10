@@ -258,47 +258,44 @@ func (m model) peekCommit() *Commit {
 }
 
 func (m model) renderCommit(c Commit, selected bool, width int) string {
-	marker := "  "
+	nameStyle := commitAuthorStyle
 	if selected {
-		marker = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("▸ ")
+		nameStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	}
 
-	header := fmt.Sprintf("%s%s  %s  %s",
-		marker,
-		commitSHAStyle.Render(c.SHA),
-		commitAuthorStyle.Render(c.Author),
+	header := fmt.Sprintf("%s  %s  %s",
+		nameStyle.Render(c.Author),
 		commitTimeStyle.Render(humanizeTime(c.At)),
+		commitSHAStyle.Render(c.SHA),
 	)
 
-	const indentPrefix = "    "
-	bodyW := width - len(indentPrefix)
+	bodyW := width
 	if bodyW < 8 {
 		bodyW = 8
 	}
 	wrapped := wrap(c.Message, bodyW)
-	indented := indent(wrapped, indentPrefix)
-	msg := commitMsgStyle.Render(indented)
+	msg := commitMsgStyle.Render(wrapped)
 
 	likeMark := likeStyle.Render("♥")
 	if c.Liked {
 		likeMark = likedStyle.Render("♥")
 	}
-	stats := fmt.Sprintf("    %s %d   %s %d",
+	stats := fmt.Sprintf("%s %d   %s %d",
 		likeMark, c.Likes,
 		commentCountStyle.Render("💬"), len(c.Comments),
 	)
 
-	parts := []string{header, msg, stats}
+	parts := []string{header, "", msg, "", stats}
 
 	if selected && len(c.Comments) > 0 {
 		parts = append(parts, "")
 		for _, cm := range c.Comments {
-			cmBody := indent(wrap(cm.Body, bodyW-2), "      ")
-			parts = append(parts, fmt.Sprintf("    %s %s",
+			cmBody := wrap(cm.Body, bodyW)
+			parts = append(parts, fmt.Sprintf("%s %s",
 				commentAuthorStyle.Render(cm.Author),
 				commitTimeStyle.Render(humanizeTime(cm.At)),
 			))
-			parts = append(parts, commentBodyStyle.Render(cmBody))
+			parts = append(parts, "", commentBodyStyle.Render(cmBody))
 		}
 	}
 
