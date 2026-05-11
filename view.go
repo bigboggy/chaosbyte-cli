@@ -31,19 +31,27 @@ func (m model) View() string {
 	}
 
 	var body string
-	switch m.mode {
-	case modeCompose, modeDetails:
-		body = m.renderPopup(m.width, bodyH)
-	case modeBranchPicker:
-		body = m.renderBranchPickerOverlay(m.width, bodyH)
-	default:
-		body = m.renderMainBody(m.width, bodyH)
+	switch m.screen {
+	case screenHome:
+		body = m.renderHome(m.width, bodyH)
+	case screenChat:
+		body = m.renderChat(m.width, bodyH)
+	case screenNews:
+		body = m.renderNews(m.width, bodyH)
+	case screenResources:
+		body = m.renderResources(m.width, bodyH)
+	case screenSpotlight:
+		body = m.renderSpotlight(m.width, bodyH)
+	case screenGames:
+		body = m.renderGames(m.width, bodyH)
+	case screenDiscussions:
+		body = m.renderDiscussionsBody(m.width, bodyH)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 
-// feedShellWidth is the width budget for the centered feed area, mirroring the popup sizing.
+// feedShellWidth is the width budget for the centered feed area.
 func feedShellWidth(termW int) int {
 	w := termW * 80 / 100
 	if w > 100 {
@@ -58,14 +66,211 @@ func feedShellWidth(termW int) int {
 	return w
 }
 
-func (m model) renderMainBody(termW, bodyH int) string {
+// ============================================================================
+// Header
+// ============================================================================
+
+func (m model) renderHeader() string {
+	title := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render("gitstatus hub")
+	sep := lipgloss.NewStyle().Foreground(colorMuted).Render(" · ")
+
+	screenTag := lipgloss.NewStyle().
+		Foreground(colorBg).
+		Background(colorAccent).
+		Bold(true).
+		Padding(0, 1).
+		Render(m.screen.name())
+
+	var ctx string
+	switch m.screen {
+	case screenHome:
+		ctx = lipgloss.NewStyle().Foreground(colorMuted).Render("all-in-one for devs & vibe coders")
+	case screenChat:
+		if m.chatActive >= 0 && m.chatActive < len(m.channels) {
+			ch := m.channels[m.chatActive]
+			ctx = lipgloss.NewStyle().Foreground(colorOk).Render(ch.Name) + sep +
+				lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d online", ch.Online))
+		} else {
+			ctx = lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d channels", len(m.channels)))
+		}
+	case screenNews:
+		ctx = lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d/%d", m.newsIdx+1, len(m.newsItems)))
+	case screenResources:
+		ctx = lipgloss.NewStyle().Foreground(colorMuted).Render(resourceTabs[m.resourcesTab])
+	case screenSpotlight:
+		_, secs := m.spotlightRotation()
+		ctx = lipgloss.NewStyle().Foreground(colorAccent).Render("LIVE") + sep +
+			lipgloss.NewStyle().Foreground(colorMuted).Render("next in "+mmss(secs))
+	case screenGames:
+		ctx = lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d games", len(m.games)))
+	case screenDiscussions:
+		if b := m.currentBranchPtr(); b != nil {
+			totalCommits, totalLikes, totalComments := repoTotals(m.branches)
+			ctx = lipgloss.NewStyle().Foreground(colorOk).Render("on "+b.Name) + sep +
+				lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d commits", totalCommits)) + sep +
+				likeStyle.Render(fmt.Sprintf("♥ %d", totalLikes)) + sep +
+				commentCountStyle.Render(fmt.Sprintf("💬 %d", totalComments))
+		}
+	}
+
+	left := title + sep + screenTag
+	if ctx != "" {
+		left += sep + ctx
+	}
+
+	right := lipgloss.NewStyle().Foreground(colorMuted).Italic(true).
+		Render(time.Now().Format("Mon 15:04:05"))
+
+	shellW := feedShellWidth(m.width)
+	gap := shellW - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	inner := left + strings.Repeat(" ", gap) + right
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, inner)
+}
+
+func (m model) currentBranchPtr() *Branch {
+	if len(m.branches) == 0 {
+		return nil
+	}
+	return &m.branches[m.branchIdx]
+}
+
+func repoTotals(branches []Branch) (commits, likes, comments int) {
+	for _, b := range branches {
+		commits += len(b.Commits)
+		for _, c := range b.Commits {
+			likes += c.Likes
+			comments += len(c.Comments)
+		}
+	}
+	return
+}
+
+// ============================================================================
+// Footer (per-screen keybinds)
+// ============================================================================
+
+type keyHint struct{ k, d string }
+
+func (m model) renderFooter() string {
+	keys := m.footerKeys()
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, helpKeyStyle.Render(k.k)+" "+helpDescStyle.Render(k.d))
+	}
+	help := strings.Join(parts, "  ·  ")
+
+	flash := ""
+	if m.flash != "" {
+		flash = lipgloss.NewStyle().Foreground(colorOk).Render("  " + m.flash)
+	}
+	inner := statusStyle.Render(help) + flash
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, inner)
+}
+
+func (m model) footerKeys() []keyHint {
+	switch m.screen {
+	case screenHome:
+		return []keyHint{
+			{"1-6", "jump"}, {"hjkl", "move"}, {"enter", "open"}, {"q", "quit"},
+		}
+	case screenChat:
+		if m.chatInputActive {
+			return []keyHint{
+				{"enter", "send"}, {"ctrl+enter", "newline"}, {"esc", "cancel"},
+			}
+		}
+		if m.chatActive >= 0 {
+			return []keyHint{
+				{"i", "type"}, {"j/k", "scroll"}, {"G", "newest"}, {"esc", "lobby"}, {"H", "home"},
+			}
+		}
+		return []keyHint{
+			{"j/k", "move"}, {"enter", "join"}, {"n", "new"}, {"esc", "home"}, {"q", "quit"},
+		}
+	case screenNews:
+		return []keyHint{
+			{"j/k", "move"}, {"enter", "open"}, {"y", "copy url"}, {"esc", "home"}, {"q", "quit"},
+		}
+	case screenResources:
+		if m.resourcesQueryActive {
+			return []keyHint{
+				{"type", "filter"}, {"enter", "submit"}, {"esc", "back"},
+			}
+		}
+		return []keyHint{
+			{"tab", "tabs"}, {"j/k", "move"}, {"enter", "open"}, {"/", "search"}, {"esc", "home"},
+		}
+	case screenSpotlight:
+		if m.spotlightInputActive {
+			return []keyHint{
+				{"enter", "send"}, {"ctrl+enter", "newline"}, {"esc", "cancel"},
+			}
+		}
+		return []keyHint{
+			{"i", "chat"}, {"j/k", "scroll"}, {"o", "open repo"}, {"esc", "home"}, {"q", "quit"},
+		}
+	case screenGames:
+		if m.gameState == gameStateBugHunter {
+			return []keyHint{
+				{"0-9", "type"}, {"enter", "guess"}, {"r", "reset"}, {"esc", "back"},
+			}
+		}
+		return []keyHint{
+			{"j/k", "move"}, {"enter", "play"}, {"esc", "home"}, {"q", "quit"},
+		}
+	case screenDiscussions:
+		switch m.mode {
+		case modeCompose:
+			return []keyHint{
+				{"enter", "push"}, {"ctrl+enter", "newline"}, {"esc", "cancel"},
+			}
+		case modeDetails:
+			if m.commentInput.Focused() {
+				return []keyHint{
+					{"enter", "post"}, {"ctrl+enter", "newline"}, {"esc", "back to thread"},
+				}
+			}
+			return []keyHint{
+				{"j/k", "select"}, {"l", "like"}, {"r", "reply"}, {"esc", "close"},
+			}
+		case modeBranchPicker:
+			return []keyHint{
+				{"j/k", "move"}, {"enter", "checkout"}, {"esc", "cancel"},
+			}
+		}
+		return []keyHint{
+			{"n", "new"}, {"enter", "open"}, {"l", "like"}, {"j/k", "move"},
+			{"tab", "next branch"}, {"b", "branches"}, {"esc", "home"},
+		}
+	}
+	return nil
+}
+
+// ============================================================================
+// Discussions screen rendering
+// ============================================================================
+
+func (m model) renderDiscussionsBody(termW, bodyH int) string {
+	switch m.mode {
+	case modeCompose, modeDetails:
+		return m.renderPopup(termW, bodyH)
+	case modeBranchPicker:
+		return m.renderBranchPickerOverlay(termW, bodyH)
+	}
+	return m.renderDiscussionsMain(termW, bodyH)
+}
+
+func (m model) renderDiscussionsMain(termW, bodyH int) string {
 	shellW := feedShellWidth(termW)
-	contentW := shellW - 2 // mild horizontal padding so the feed isn't flush against the screen edge
+	contentW := shellW - 2
 
 	tabs := m.renderTabs(contentW)
 	tabsH := lipgloss.Height(tabs)
 
-	feedH := bodyH - tabsH - 1 // -1 for blank between tabs and feed
+	feedH := bodyH - tabsH - 1
 	if feedH < 4 {
 		feedH = 4
 	}
@@ -86,7 +291,7 @@ func (m model) renderTabs(width int) string {
 			tabs = append(tabs, tabInactiveStyle.Render(label))
 		}
 	}
-	more := tabMoreStyle.Render(fmt.Sprintf("%d  more (%d)", len(visible)+1, len(m.branches)))
+	more := tabMoreStyle.Render(fmt.Sprintf("b  more (%d)", len(m.branches)))
 	tabs = append(tabs, more)
 
 	row := strings.Join(tabs, "  ")
@@ -146,12 +351,12 @@ func (m model) renderBranchPickerOverlay(width, height int) string {
 }
 
 var logoLines = []string{
-	" ██████╗ ██╗████████╗███████╗████████╗ █████╗ ████████╗██╗   ██╗███████╗",
-	"██╔════╝ ██║╚══██╔══╝██╔════╝╚══██╔══╝██╔══██╗╚══██╔══╝██║   ██║██╔════╝",
-	"██║  ███╗██║   ██║   ███████╗   ██║   ███████║   ██║   ██║   ██║███████╗",
-	"██║   ██║██║   ██║   ╚════██║   ██║   ██╔══██║   ██║   ██║   ██║╚════██║",
-	"╚██████╔╝██║   ██║   ███████║   ██║   ██║  ██║   ██║   ╚██████╔╝███████║",
-	" ╚═════╝ ╚═╝   ╚═╝   ╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚══════╝",
+	" ██████╗██╗  ██╗ █████╗  ██████╗ ███████╗██████╗ ██╗   ██╗████████╗███████╗",
+	"██╔════╝██║  ██║██╔══██╗██╔═══██╗██╔════╝██╔══██╗╚██╗ ██╔╝╚══██╔══╝██╔════╝",
+	"██║     ███████║███████║██║   ██║███████╗██████╔╝ ╚████╔╝    ██║   █████╗  ",
+	"██║     ██╔══██║██╔══██║██║   ██║╚════██║██╔══██╗  ╚██╔╝     ██║   ██╔══╝  ",
+	"╚██████╗██║  ██║██║  ██║╚██████╔╝███████║██████╔╝   ██║      ██║   ███████╗",
+	" ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═════╝    ╚═╝      ╚═╝   ╚══════╝",
 }
 
 func (m model) renderLogo() string {
@@ -171,54 +376,8 @@ func (m model) renderLogo() string {
 	return strings.Join(rendered, "\n")
 }
 
-func (m model) renderHeader() string {
-	branchName := ""
-	if b := pointerToBranch(&m); b != nil {
-		branchName = "on " + b.Name
-	}
-	totalCommits, totalLikes, totalComments := repoTotals(m.branches)
-
-	title := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render("gitstatus")
-	sep := lipgloss.NewStyle().Foreground(colorMuted).Render(" · ")
-
-	left := title + sep +
-		lipgloss.NewStyle().Foreground(colorOk).Render(branchName) + sep +
-		lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d commits", totalCommits)) + sep +
-		likeStyle.Render(fmt.Sprintf("♥ %d", totalLikes)) + sep +
-		commentCountStyle.Render(fmt.Sprintf("💬 %d", totalComments))
-
-	right := lipgloss.NewStyle().Foreground(colorMuted).Italic(true).
-		Render(time.Now().Format("Mon 15:04:05"))
-
-	shellW := feedShellWidth(m.width)
-	gap := shellW - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
-	inner := left + strings.Repeat(" ", gap) + right
-	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, inner)
-}
-
-func pointerToBranch(m *model) *Branch {
-	if len(m.branches) == 0 {
-		return nil
-	}
-	return &m.branches[m.branchIdx]
-}
-
-func repoTotals(branches []Branch) (commits, likes, comments int) {
-	for _, b := range branches {
-		commits += len(b.Commits)
-		for _, c := range b.Commits {
-			likes += c.Likes
-			comments += len(c.Comments)
-		}
-	}
-	return
-}
-
 func (m model) renderFeed(width, height int) string {
-	b := pointerToBranch(&m)
+	b := m.currentBranchPtr()
 	if b == nil || len(b.Commits) == 0 {
 		return padToHeight(statusStyle.Render("no commits yet — press 'n' to compose one"), height)
 	}
@@ -235,7 +394,7 @@ func (m model) renderFeed(width, height int) string {
 		blocks = append(blocks, block)
 		line += lipgloss.Height(block)
 		if i < len(b.Commits)-1 {
-			line++ // divider
+			line++
 		}
 	}
 
@@ -249,9 +408,7 @@ func (m model) renderFeed(width, height int) string {
 	body := strings.Join(bodyParts, "\n")
 	bodyLines := strings.Split(body, "\n")
 
-	// Always reserve a row for the (maybe-blank) scroll indicator so the
-	// total feed height stays constant whether or not we're scrolling.
-	visibleH := height - 3 // title + indicator + blank
+	visibleH := height - 3
 	if visibleH < 1 {
 		visibleH = 1
 	}
@@ -318,16 +475,8 @@ func padToHeight(s string, h int) string {
 	return s + strings.Repeat("\n", h-len(lines))
 }
 
-func (m model) currentCommitSHA() string {
-	c := m.peekCommit()
-	if c == nil {
-		return ""
-	}
-	return c.SHA
-}
-
 func (m model) peekCommit() *Commit {
-	b := pointerToBranch(&m)
+	b := m.currentBranchPtr()
 	if b == nil || len(b.Commits) == 0 {
 		return nil
 	}
@@ -339,7 +488,7 @@ func (m model) peekCommit() *Commit {
 }
 
 func (m model) renderCommit(c Commit, selected bool, width int) string {
-	const chrome = 4 // border (2) + horizontal padding (2)
+	const chrome = 4
 	bodyW := width - chrome
 	if bodyW < 8 {
 		bodyW = 8
@@ -407,7 +556,7 @@ func (m model) renderComposeScreen(width, height int) string {
 
 	const topBlanks = 3
 	const midBlank = 1
-	const boxOverhead = 8 // border(2) + vert padding(2) + title(1) + 2 rules + hint(1)
+	const boxOverhead = 8
 
 	avail := height - topBlanks - logoH - midBlank
 	taH := avail - boxOverhead
@@ -419,10 +568,10 @@ func (m model) renderComposeScreen(width, height int) string {
 	}
 
 	bn := ""
-	if b := pointerToBranch(&m); b != nil {
+	if b := m.currentBranchPtr(); b != nil {
 		bn = b.Name
 	}
-	contentW := popupW - 6 // border (2) + horizontal padding (4)
+	contentW := popupW - 6
 	if contentW < 30 {
 		contentW = 30
 	}
@@ -514,7 +663,7 @@ func (m model) renderDetailsPopup(width, height int) string {
 	top := lipgloss.JoinVertical(lipgloss.Left, post, "", rule)
 	bottom := lipgloss.JoinVertical(lipgloss.Left, rule, "", replyHeader, inputView, "", hint)
 
-	const popupBoxOverhead = 4 // border (2) + vert padding (2)
+	const popupBoxOverhead = 4
 	availInner := height - popupBoxOverhead
 	if availInner < 10 {
 		availInner = 10
@@ -598,7 +747,6 @@ func (m model) renderDetailsPopup(width, height int) string {
 		if middleH < 4 {
 			middleH = 4
 		}
-		// recompute visible window with adjusted middleH
 		if scroll+middleH > len(middleLines) {
 			scroll = len(middleLines) - middleH
 		}
@@ -653,7 +801,7 @@ func renderPostBlock(c *Commit, width int, selected bool) string {
 
 func renderCommentBlock(cm Comment, depth, width int, selected bool) string {
 	indent := strings.Repeat("  ", depth)
-	innerW := width - len(indent) - 4 // 2 border, 2 padding
+	innerW := width - len(indent) - 4
 	if innerW < 12 {
 		innerW = 12
 	}
@@ -682,61 +830,9 @@ func renderCommentBlock(cm Comment, depth, width int, selected bool) string {
 	return lipgloss.NewStyle().PaddingLeft(len(indent)).Render(box.Render(content))
 }
 
-
-func (m model) renderFooter() string {
-	var keys []struct{ k, d string }
-	switch m.mode {
-	case modeCompose:
-		keys = []struct{ k, d string }{
-			{"enter", "push"},
-			{"ctrl+enter", "newline"},
-			{"esc", "cancel"},
-		}
-	case modeDetails:
-		if m.commentInput.Focused() {
-			keys = []struct{ k, d string }{
-				{"enter", "post"},
-				{"ctrl+enter", "newline"},
-				{"esc", "back to thread"},
-			}
-		} else {
-			keys = []struct{ k, d string }{
-				{"j/k", "select"},
-				{"l", "like"},
-				{"r", "reply"},
-				{"esc", "close"},
-			}
-		}
-	case modeBranchPicker:
-		keys = []struct{ k, d string }{
-			{"j/k", "move"},
-			{"enter", "checkout"},
-			{"esc", "cancel"},
-		}
-	default:
-		keys = []struct{ k, d string }{
-			{"n", "new commit"},
-			{"enter", "open"},
-			{"l", "like"},
-			{"j/k", "move"},
-			{"tab", "next branch"},
-			{"b", "all branches"},
-			{"q", "quit"},
-		}
-	}
-	var parts []string
-	for _, k := range keys {
-		parts = append(parts, helpKeyStyle.Render(k.k)+" "+helpDescStyle.Render(k.d))
-	}
-	help := strings.Join(parts, "  ·  ")
-
-	flash := ""
-	if m.flash != "" {
-		flash = lipgloss.NewStyle().Foreground(colorOk).Render("  " + m.flash)
-	}
-	inner := statusStyle.Render(help) + flash
-	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, inner)
-}
+// ============================================================================
+// Helpers
+// ============================================================================
 
 func wrap(s string, width int) string {
 	if width < 4 {
@@ -769,13 +865,6 @@ func wrap(s string, width int) string {
 	return strings.Join(out, "\n")
 }
 
-func indent(s, prefix string) string {
-	if s == "" {
-		return prefix
-	}
-	return prefix + strings.ReplaceAll(s, "\n", "\n"+prefix)
-}
-
 func humanizeTime(t time.Time) string {
 	d := time.Since(t)
 	switch {
@@ -800,12 +889,4 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s[:n-1] + "…"
-}
-
-func clipVertical(s string, h int) string {
-	lines := strings.Split(s, "\n")
-	if len(lines) <= h {
-		return s
-	}
-	return strings.Join(lines[:h], "\n")
 }

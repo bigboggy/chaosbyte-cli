@@ -9,6 +9,38 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type screen int
+
+const (
+	screenHome screen = iota
+	screenChat
+	screenNews
+	screenResources
+	screenSpotlight
+	screenGames
+	screenDiscussions
+)
+
+func (s screen) name() string {
+	switch s {
+	case screenHome:
+		return "home"
+	case screenChat:
+		return "chat"
+	case screenNews:
+		return "news"
+	case screenResources:
+		return "resources"
+	case screenSpotlight:
+		return "spotlight"
+	case screenGames:
+		return "games"
+	case screenDiscussions:
+		return "discussions"
+	}
+	return ""
+}
+
 type mode int
 
 const (
@@ -20,26 +52,68 @@ const (
 
 const visibleTabs = 3
 
+// home tile layout: 3 cols × 3 rows (the seventh tile lives alone in row 3).
+const homeCols = 3
+
 type model struct {
-	branches []Branch
+	screen screen
 
-	branchIdx int
-	commitIdx int
+	// home
+	homeIdx int
 
-	mode mode
+	// chat
+	channels        []Channel
+	chatChannelIdx  int  // selection in lobby
+	chatActive      int  // -1 = lobby, >=0 = inside channel
+	chatInput       textarea.Model
+	chatInputActive bool
+	chatScroll      int
 
-	commitInput  textarea.Model
-	commentInput textarea.Model
+	// news
+	newsItems  []NewsItem
+	newsIdx    int
+	newsScroll int
 
-	detailsSelIdx int // -1 = post, 0..N-1 = flat comment index
+	// resources
+	resourcesTab         int // 0 trending, 1 top, 2 repos, 3 search
+	resourcesIdx         int
+	resourcesQuery       string
+	resourcesQueryActive bool
+	skillsTrending       []Skill
+	skillsTop            []Skill
+	repos                []Repo
 
+	// spotlight
+	spotlights           []Spotlight
+	spotlightChat        []ChatMessage
+	spotlightChatScroll  int
+	spotlightInput       textarea.Model
+	spotlightInputActive bool
+
+	// games
+	games     []Game
+	gameIdx   int
+	gameState gameState
+	bugHunter bugHunterState
+
+	// discussions (existing)
+	branches        []Branch
+	branchIdx       int
+	commitIdx       int
+	mode            mode
+	commitInput     textarea.Model
+	commentInput    textarea.Model
+	detailsSelIdx   int
 	branchPickerIdx int
 
+	// shared
 	width  int
 	height int
 
 	flash   string
 	flashAt time.Time
+
+	now time.Time
 }
 
 type tickMsg time.Time
@@ -59,15 +133,41 @@ func newModel() model {
 	cm.CharLimit = 0
 	cm.SetHeight(6)
 
+	chat := textarea.New()
+	chat.Placeholder = "type a message... (enter to send, esc to cancel)"
+	chat.Prompt = ""
+	chat.ShowLineNumbers = false
+	chat.CharLimit = 0
+	chat.SetHeight(3)
+
+	spot := textarea.New()
+	spot.Placeholder = "join the discussion... (enter to send)"
+	spot.Prompt = ""
+	spot.ShowLineNumbers = false
+	spot.CharLimit = 0
+	spot.SetHeight(3)
+
 	return model{
-		branches:     seedBranches(),
-		commitInput:  ci,
-		commentInput: cm,
+		screen:         screenHome,
+		branches:       seedBranches(),
+		channels:       seedChannels(),
+		chatActive:     -1,
+		newsItems:      seedNews(),
+		skillsTrending: seedTrendingSkills(),
+		skillsTop:      seedTopSkills(),
+		repos:          seedRepos(),
+		spotlights:     seedSpotlights(),
+		spotlightChat:  seedSpotlightChat(),
+		games:          seedGames(),
+		bugHunter:      newBugHunter(),
+		commitInput:    ci,
+		commentInput:   cm,
+		chatInput:      chat,
+		spotlightInput: spot,
+		now:            time.Now(),
 	}
 }
 
-// visibleTabBranches returns the branch indices to show as tabs, ensuring the
-// active branch is always one of them.
 func (m *model) visibleTabBranches() []int {
 	n := len(m.branches)
 	if n == 0 {
@@ -139,9 +239,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		taW, _ := m.popupTextareaSize()
 		m.commitInput.SetWidth(taW)
 		m.commentInput.SetWidth(taW)
+		m.chatInput.SetWidth(taW)
+		m.spotlightInput.SetWidth(taW)
 		return m, nil
 
 	case tickMsg:
+		m.now = time.Time(msg)
 		if !m.flashAt.IsZero() && time.Since(m.flashAt) > 3*time.Second {
 			m.flash = ""
 			m.flashAt = time.Time{}
@@ -149,18 +252,153 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickEvery()
 
 	case tea.KeyMsg:
-		switch m.mode {
-		case modeCompose:
-			return m.updateCompose(msg)
-		case modeDetails:
-			return m.updateDetails(msg)
-		case modeBranchPicker:
-			return m.updateBranchPicker(msg)
-		}
-		return m.updateNormal(msg)
+		return m.routeKey(msg)
 	}
 
 	return m, nil
+}
+
+// routeKey dispatches keystrokes. Global keys (1–7, esc, q) only apply when no
+// text input is focused on the current screen.
+func (m model) routeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.inputFocused() {
+		return m.updateScreen(msg)
+	}
+
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "q":
+		if m.screen == screenHome {
+			return m, tea.Quit
+		}
+		return m.goHome(), nil
+	case "esc":
+		if m.screen == screenHome {
+			return m, nil
+		}
+		// let screens with sub-state intercept esc first
+		mm, handled, cmd := m.screenInterceptEsc()
+		if handled {
+			return mm, cmd
+		}
+		return m.goHome(), nil
+	case "H", "~", "0":
+		return m.goHome(), nil
+	case "1":
+		return m.jumpTo(screenChat), nil
+	case "2":
+		return m.jumpTo(screenNews), nil
+	case "3":
+		return m.jumpTo(screenResources), nil
+	case "4":
+		return m.jumpTo(screenSpotlight), nil
+	case "5":
+		return m.jumpTo(screenGames), nil
+	case "6":
+		return m.jumpTo(screenDiscussions), nil
+	}
+	return m.updateScreen(msg)
+}
+
+func (m model) inputFocused() bool {
+	switch m.screen {
+	case screenDiscussions:
+		return m.mode == modeCompose || (m.mode == modeDetails && m.commentInput.Focused())
+	case screenChat:
+		return m.chatInputActive
+	case screenSpotlight:
+		return m.spotlightInputActive
+	case screenResources:
+		return m.resourcesQueryActive
+	}
+	return false
+}
+
+func (m model) jumpTo(s screen) tea.Model {
+	m.screen = s
+	if s == screenChat {
+		m.chatActive = -1
+	}
+	if s == screenGames {
+		m.gameState = gameStateList
+	}
+	return m
+}
+
+func (m model) goHome() tea.Model {
+	m.screen = screenHome
+	m.mode = modeNormal
+	m.commitInput.Blur()
+	m.commentInput.Blur()
+	m.chatInput.Blur()
+	m.spotlightInput.Blur()
+	m.chatInputActive = false
+	m.spotlightInputActive = false
+	m.resourcesQueryActive = false
+	return m
+}
+
+// screenInterceptEsc lets a screen with sub-state handle esc (e.g. back out of
+// a channel to the lobby) before the global esc returns to home.
+func (m model) screenInterceptEsc() (tea.Model, bool, tea.Cmd) {
+	switch m.screen {
+	case screenChat:
+		if m.chatActive >= 0 {
+			m.chatActive = -1
+			m.chatScroll = 0
+			return m, true, nil
+		}
+	case screenDiscussions:
+		if m.mode != modeNormal {
+			m.mode = modeNormal
+			m.commitInput.Blur()
+			m.commentInput.Blur()
+			return m, true, nil
+		}
+	case screenGames:
+		if m.gameState != gameStateList {
+			m.gameState = gameStateList
+			return m, true, nil
+		}
+	}
+	return m, false, nil
+}
+
+func (m model) updateScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.screen {
+	case screenHome:
+		return m.updateHome(msg)
+	case screenChat:
+		return m.updateChat(msg)
+	case screenNews:
+		return m.updateNews(msg)
+	case screenResources:
+		return m.updateResources(msg)
+	case screenSpotlight:
+		return m.updateSpotlight(msg)
+	case screenGames:
+		return m.updateGames(msg)
+	case screenDiscussions:
+		return m.updateDiscussions(msg)
+	}
+	return m, nil
+}
+
+// ============================================================================
+// Discussions screen (existing functionality)
+// ============================================================================
+
+func (m model) updateDiscussions(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.mode {
+	case modeCompose:
+		return m.updateCompose(msg)
+	case modeDetails:
+		return m.updateDetails(msg)
+	case modeBranchPicker:
+		return m.updateBranchPicker(msg)
+	}
+	return m.updateDiscussionsNormal(msg)
 }
 
 func (m model) updateCompose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -232,7 +470,7 @@ func (m model) updateDetails(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "esc", "q":
+	case "esc":
 		m.commentInput.SetValue("")
 		m.mode = modeNormal
 		return m, nil
@@ -264,11 +502,8 @@ func (m model) updateDetails(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateDiscussionsNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "q":
-		return m, tea.Quit
-
 	case "tab":
 		visible := m.visibleTabBranches()
 		if len(visible) > 0 {
@@ -304,16 +539,7 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "1", "2", "3":
-		visible := m.visibleTabBranches()
-		idx := int(msg.String()[0] - '1')
-		if idx < len(visible) {
-			m.branchIdx = visible[idx]
-			m.commitIdx = 0
-		}
-		return m, nil
-
-	case "b", "4":
+	case "b":
 		m.mode = modeBranchPicker
 		m.branchPickerIdx = m.branchIdx
 		return m, nil
@@ -365,7 +591,7 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateBranchPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "q", "ctrl+c", "b":
+	case "esc", "b":
 		m.mode = modeNormal
 		return m, nil
 	case "j", "down":

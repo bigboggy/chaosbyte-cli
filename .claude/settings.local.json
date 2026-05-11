@@ -4,7 +4,13 @@
       "Bash(go version *)",
       "Bash(go mod *)",
       "Bash(go build *)",
-      "Bash(go vet *)"
+      "Bash(go vet *)",
+      "Bash(timeout 1 ./gitstatus)",
+      "Bash(echo \"exit:$?\")",
+      "Read(//tmp/**)",
+      "Bash(command -v script)",
+      "Bash(command -v figlet toilet)",
+      "Bash(figlet -f ANSIShadow CHAOSBYTE)"
     ]
   }
 }
