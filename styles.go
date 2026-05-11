@@ -16,6 +16,20 @@ var (
 )
 
 var (
+	tabActiveStyle = lipgloss.NewStyle().
+			Foreground(colorBg).
+			Background(colorAccent).
+			Bold(true).
+			Padding(0, 2)
+
+	tabInactiveStyle = lipgloss.NewStyle().
+				Foreground(colorMuted).
+				Padding(0, 2)
+
+	tabMoreStyle = lipgloss.NewStyle().
+			Foreground(colorAccent2).
+			Padding(0, 2)
+
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorAccent2).

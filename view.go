@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	branchPaneWidth = 28
-	minWidth        = 80
-	minHeight       = 22
+	minWidth  = 80
+	minHeight = 22
 )
 
 func (m model) View() string {
@@ -20,8 +19,6 @@ func (m model) View() string {
 			Foreground(colorWarn).
 			Render(fmt.Sprintf("terminal too small (%dx%d), need at least %dx%d", m.width, m.height, minWidth, minHeight))
 	}
-
-	const paneChrome = 4 // border (2) + horizontal padding (2)
 
 	header := m.renderHeader()
 	footer := m.renderFooter()
@@ -34,37 +31,118 @@ func (m model) View() string {
 	}
 
 	var body string
-	if m.mode == modeCompose || m.mode == modeComment {
+	switch m.mode {
+	case modeCompose, modeDetails:
 		body = m.renderPopup(m.width, bodyH)
-	} else {
-		leftWidth := m.width - (branchPaneWidth + paneChrome)
-		if leftWidth < 30 {
-			leftWidth = 30
-		}
-		branchContentH := bodyH - 2
-		if branchContentH < 3 {
-			branchContentH = 3
-		}
-		feedContentH := bodyH - 2
-		if feedContentH < 3 {
-			feedContentH = 3
-		}
-
-		bp := paneStyle(m.focus == focusBranches).
-			Width(branchPaneWidth).
-			Height(branchContentH)
-		branches := bp.Render(m.renderBranches(branchContentH))
-
-		fp := paneStyle(m.focus == focusFeed).
-			Width(leftWidth - paneChrome).
-			Height(feedContentH)
-		feedContentW := leftWidth - paneChrome - 2
-		feed := fp.Render(m.renderFeed(feedContentW, feedContentH))
-
-		body = lipgloss.JoinHorizontal(lipgloss.Top, feed, branches)
+	case modeBranchPicker:
+		body = m.renderBranchPickerOverlay(m.width, bodyH)
+	default:
+		body = m.renderMainBody(m.width, bodyH)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+}
+
+// feedShellWidth is the width budget for the centered feed area, mirroring the popup sizing.
+func feedShellWidth(termW int) int {
+	w := termW * 80 / 100
+	if w > 100 {
+		w = 100
+	}
+	if w < 60 {
+		w = 60
+	}
+	if w > termW-2 {
+		w = termW - 2
+	}
+	return w
+}
+
+func (m model) renderMainBody(termW, bodyH int) string {
+	shellW := feedShellWidth(termW)
+	contentW := shellW - 2 // mild horizontal padding so the feed isn't flush against the screen edge
+
+	tabs := m.renderTabs(contentW)
+	tabsH := lipgloss.Height(tabs)
+
+	feedH := bodyH - tabsH - 1 // -1 for blank between tabs and feed
+	if feedH < 4 {
+		feedH = 4
+	}
+	feed := m.renderFeed(contentW, feedH)
+
+	col := lipgloss.JoinVertical(lipgloss.Left, tabs, "", feed)
+	return lipgloss.Place(termW, bodyH, lipgloss.Center, lipgloss.Top, col)
+}
+
+func (m model) renderTabs(width int) string {
+	visible := m.visibleTabBranches()
+	var tabs []string
+	for i, idx := range visible {
+		label := fmt.Sprintf("%d %s", i+1, m.branches[idx].Name)
+		if idx == m.branchIdx {
+			tabs = append(tabs, tabActiveStyle.Render(label))
+		} else {
+			tabs = append(tabs, tabInactiveStyle.Render(label))
+		}
+	}
+	more := tabMoreStyle.Render(fmt.Sprintf("%d  more (%d)", len(visible)+1, len(m.branches)))
+	tabs = append(tabs, more)
+
+	row := strings.Join(tabs, "  ")
+	rowW := lipgloss.Width(row)
+	if rowW < width {
+		row = lipgloss.PlaceHorizontal(width, lipgloss.Left, row)
+	}
+	return row
+}
+
+func (m model) renderBranchPickerOverlay(width, height int) string {
+	popupW := width * 60 / 100
+	if popupW > 70 {
+		popupW = 70
+	}
+	if popupW < 40 {
+		popupW = 40
+	}
+	contentW := popupW - 6
+	if contentW < 24 {
+		contentW = 24
+	}
+
+	title := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render("checkout a branch")
+	rule := lipgloss.NewStyle().Foreground(colorBorderLo).Render(strings.Repeat("─", contentW))
+
+	var rows []string
+	for i, b := range m.branches {
+		marker := "  "
+		if i == m.branchPickerIdx {
+			marker = "▸ "
+		}
+		label := fmt.Sprintf("%s%-30s %d", marker, truncate(b.Name, 30), len(b.Commits))
+		if i == m.branchPickerIdx {
+			rows = append(rows, branchItemSelStyle.Width(contentW).Render(label))
+		} else if i == m.branchIdx {
+			rows = append(rows, lipgloss.NewStyle().Foreground(colorOk).Render(label))
+		} else {
+			rows = append(rows, branchItemStyle.Render(label))
+		}
+	}
+	hint := helpDescStyle.Render("j/k move   ·   enter checkout   ·   esc cancel")
+
+	inner := lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		rule,
+		strings.Join(rows, "\n"),
+		rule,
+		hint,
+	)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorAccent).
+		Padding(1, 2).
+		Render(inner)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
 
 var logoLines = []string{
@@ -112,12 +190,13 @@ func (m model) renderHeader() string {
 	right := lipgloss.NewStyle().Foreground(colorMuted).Italic(true).
 		Render(time.Now().Format("Mon 15:04:05"))
 
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	shellW := feedShellWidth(m.width)
+	gap := shellW - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
-
-	return " " + left + strings.Repeat(" ", gap) + right + " "
+	inner := left + strings.Repeat(" ", gap) + right
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, inner)
 }
 
 func pointerToBranch(m *model) *Branch {
@@ -138,25 +217,10 @@ func repoTotals(branches []Branch) (commits, likes, comments int) {
 	return
 }
 
-func (m model) renderBranches(height int) string {
-	var lines []string
-	lines = append(lines, titleStyle.Render("branches"))
-	lines = append(lines, "")
-	for i, b := range m.branches {
-		label := fmt.Sprintf("%-20s %d", truncate(b.Name, 20), len(b.Commits))
-		if i == m.branchIdx {
-			lines = append(lines, branchItemSelStyle.Render("▸ "+label))
-		} else {
-			lines = append(lines, branchItemStyle.Render("  "+label))
-		}
-	}
-	return clipVertical(strings.Join(lines, "\n"), height)
-}
-
 func (m model) renderFeed(width, height int) string {
 	b := pointerToBranch(&m)
 	if b == nil || len(b.Commits) == 0 {
-		return statusStyle.Render("no commits yet — press 'n' to compose one")
+		return padToHeight(statusStyle.Render("no commits yet — press 'n' to compose one"), height)
 	}
 
 	title := titleStyle.Render("feed: " + b.Name)
@@ -165,7 +229,7 @@ func (m model) renderFeed(width, height int) string {
 	var startLines []int
 	line := 0
 	for i, c := range b.Commits {
-		focused := i == m.commitIdx && m.focus == focusFeed
+		focused := i == m.commitIdx
 		block := m.renderCommit(c, focused, width)
 		startLines = append(startLines, line)
 		blocks = append(blocks, block)
@@ -185,7 +249,9 @@ func (m model) renderFeed(width, height int) string {
 	body := strings.Join(bodyParts, "\n")
 	bodyLines := strings.Split(body, "\n")
 
-	visibleH := height - 2 // -2 for title + blank
+	// Always reserve a row for the (maybe-blank) scroll indicator so the
+	// total feed height stays constant whether or not we're scrolling.
+	visibleH := height - 3 // title + indicator + blank
 	if visibleH < 1 {
 		visibleH = 1
 	}
@@ -221,20 +287,35 @@ func (m model) renderFeed(width, height int) string {
 	}
 	visible := strings.Join(bodyLines[scroll:end], "\n")
 
-	scrollIndicator := ""
+	indicator := strings.Repeat(" ", width)
 	if len(bodyLines) > visibleH {
 		pct := 100
 		if len(bodyLines)-visibleH > 0 {
 			pct = scroll * 100 / (len(bodyLines) - visibleH)
 		}
-		scrollIndicator = lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("  %d%%", pct))
+		indicator = lipgloss.NewStyle().
+			Foreground(colorMuted).
+			Width(width).
+			Align(lipgloss.Right).
+			Render(fmt.Sprintf("scroll %d%%", pct))
 	}
-
-	return strings.Join([]string{title + scrollIndicator, "", visible}, "\n")
+	parts := []string{title, indicator, "", visible}
+	return padToHeight(strings.Join(parts, "\n"), height)
 }
 
 func dividerLine(width int) string {
 	return lipgloss.NewStyle().Foreground(colorBorderLo).Render(strings.Repeat("─", width))
+}
+
+func padToHeight(s string, h int) string {
+	if h <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) >= h {
+		return strings.Join(lines[:h], "\n")
+	}
+	return s + strings.Repeat("\n", h-len(lines))
 }
 
 func (m model) currentCommitSHA() string {
@@ -258,21 +339,18 @@ func (m model) peekCommit() *Commit {
 }
 
 func (m model) renderCommit(c Commit, selected bool, width int) string {
-	nameStyle := commitAuthorStyle
-	if selected {
-		nameStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	const chrome = 4 // border (2) + horizontal padding (2)
+	bodyW := width - chrome
+	if bodyW < 8 {
+		bodyW = 8
 	}
 
 	header := fmt.Sprintf("%s  %s  %s",
-		nameStyle.Render(c.Author),
+		commitAuthorStyle.Render(c.Author),
 		commitTimeStyle.Render(humanizeTime(c.At)),
 		commitSHAStyle.Render(c.SHA),
 	)
 
-	bodyW := width
-	if bodyW < 8 {
-		bodyW = 8
-	}
 	wrapped := wrap(c.Message, bodyW)
 	msg := commitMsgStyle.Render(wrapped)
 
@@ -285,21 +363,15 @@ func (m model) renderCommit(c Commit, selected bool, width int) string {
 		commentCountStyle.Render("💬"), len(c.Comments),
 	)
 
-	parts := []string{header, "", msg, "", stats}
+	content := strings.Join([]string{header, "", msg, "", stats}, "\n")
 
-	if selected && len(c.Comments) > 0 {
-		parts = append(parts, "")
-		for _, cm := range c.Comments {
-			cmBody := wrap(cm.Body, bodyW)
-			parts = append(parts, fmt.Sprintf("%s %s",
-				commentAuthorStyle.Render(cm.Author),
-				commitTimeStyle.Render(humanizeTime(cm.At)),
-			))
-			parts = append(parts, "", commentBodyStyle.Render(cmBody))
-		}
+	box := lipgloss.NewStyle().Padding(0, 1).Width(bodyW)
+	if selected {
+		box = box.Border(lipgloss.RoundedBorder()).BorderForeground(colorAccent)
+	} else {
+		box = box.Border(lipgloss.HiddenBorder())
 	}
-
-	return strings.Join(parts, "\n")
+	return box.Render(content)
 }
 
 func popupSize(termW, termH int) (w, h int) {
@@ -324,7 +396,7 @@ func (m model) renderPopup(width, height int) string {
 	if m.mode == modeCompose {
 		return m.renderComposeScreen(width, height)
 	}
-	return m.renderCommentPopup(width, height)
+	return m.renderDetailsPopup(width, height)
 }
 
 func (m model) renderComposeScreen(width, height int) string {
@@ -350,20 +422,23 @@ func (m model) renderComposeScreen(width, height int) string {
 	if b := pointerToBranch(&m); b != nil {
 		bn = b.Name
 	}
+	contentW := popupW - 6 // border (2) + horizontal padding (4)
+	if contentW < 30 {
+		contentW = 30
+	}
 	title := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render("commit on " + bn)
-	m.commitInput.SetWidth(popupW - 4)
+	m.commitInput.SetWidth(contentW)
 	m.commitInput.SetHeight(taH)
 	ta := m.commitInput.View()
-	hint := helpDescStyle.Render("ctrl+s push   ·   enter newline   ·   esc cancel")
+	hint := helpDescStyle.Render("enter push   ·   ctrl+enter newline   ·   esc cancel")
 
-	rule := lipgloss.NewStyle().Foreground(colorBorderLo).Render(strings.Repeat("─", popupW-4))
+	rule := lipgloss.NewStyle().Foreground(colorBorderLo).Render(strings.Repeat("─", contentW))
 
 	inner := strings.Join([]string{title, rule, ta, rule, hint}, "\n")
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorAccent).
 		Padding(1, 2).
-		Width(popupW - 4).
 		Render(inner)
 
 	logoCentered := lipgloss.PlaceHorizontal(width, lipgloss.Center, logo)
@@ -388,49 +463,264 @@ func (m model) renderComposeScreen(width, height int) string {
 	return content
 }
 
-func (m model) renderCommentPopup(width, height int) string {
-	popupW, _ := popupSize(width, height)
+func (m model) renderDetailsPopup(width, height int) string {
+	c := m.peekCommit()
+	if c == nil {
+		return ""
+	}
 
-	title := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render("reply to " + m.currentCommitSHA())
-	m.commentInput.SetWidth(popupW - 4)
-	ta := m.commentInput.View()
-	hint := helpDescStyle.Render("ctrl+s post   ·   enter newline   ·   esc cancel")
+	popupW := width * 80 / 100
+	if popupW > 100 {
+		popupW = 100
+	}
+	if popupW < 60 {
+		popupW = 60
+	}
+	contentW := popupW - 6
+	if contentW < 30 {
+		contentW = 30
+	}
 
-	rule := lipgloss.NewStyle().Foreground(colorBorderLo).Render(strings.Repeat("─", popupW-4))
+	rule := lipgloss.NewStyle().Foreground(colorBorderLo).Render(strings.Repeat("─", contentW))
 
-	inner := strings.Join([]string{title, rule, ta, rule, hint}, "\n")
+	postSelected := m.detailsSelIdx == -1
+	post := renderPostBlock(c, contentW, postSelected)
+
+	flat := flattenComments(c.Comments, 0)
+
+	target := "the post"
+	if postSelected {
+		target = c.Author
+	} else if m.detailsSelIdx >= 0 && m.detailsSelIdx < len(flat) {
+		target = flat[m.detailsSelIdx].c.Author
+	}
+	var replyHeader string
+	if m.commentInput.Focused() {
+		replyHeader = lipgloss.NewStyle().Foreground(colorOk).Bold(true).Render("replying to " + target)
+	} else {
+		replyHeader = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render("press r to reply to " + target)
+	}
+
+	m.commentInput.SetWidth(contentW)
+	m.commentInput.SetHeight(3)
+	inputView := m.commentInput.View()
+	var hint string
+	if m.commentInput.Focused() {
+		hint = helpDescStyle.Render("enter post   ·   ctrl+enter newline   ·   esc back to thread")
+	} else {
+		hint = helpDescStyle.Render("j/k select   ·   l like   ·   r reply   ·   esc close")
+	}
+
+	top := lipgloss.JoinVertical(lipgloss.Left, post, "", rule)
+	bottom := lipgloss.JoinVertical(lipgloss.Left, rule, "", replyHeader, inputView, "", hint)
+
+	const popupBoxOverhead = 4 // border (2) + vert padding (2)
+	availInner := height - popupBoxOverhead
+	if availInner < 10 {
+		availInner = 10
+	}
+
+	topH := lipgloss.Height(top)
+	bottomH := lipgloss.Height(bottom)
+	middleH := availInner - topH - bottomH
+	if middleH < 4 {
+		middleH = 4
+	}
+
+	var blocks []string
+	var startLines []int
+	line := 0
+	for i, f := range flat {
+		selected := i == m.detailsSelIdx
+		block := renderCommentBlock(*f.c, f.depth, contentW, selected)
+		startLines = append(startLines, line)
+		blocks = append(blocks, block)
+		line += lipgloss.Height(block)
+	}
+
+	var middleStr string
+	if len(flat) == 0 {
+		middleStr = lipgloss.NewStyle().Foreground(colorMuted).Italic(true).Render("no replies yet — be the first.")
+	} else {
+		middleStr = strings.Join(blocks, "\n")
+	}
+	middleLines := strings.Split(middleStr, "\n")
+
+	scroll := 0
+	if m.detailsSelIdx >= 0 && m.detailsSelIdx < len(blocks) {
+		selStart := startLines[m.detailsSelIdx]
+		selBlockH := lipgloss.Height(blocks[m.detailsSelIdx])
+		selEnd := selStart + selBlockH
+		if selEnd > middleH {
+			scroll = selEnd - middleH
+		}
+		if selStart < scroll {
+			scroll = selStart
+		}
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	if scroll+middleH > len(middleLines) {
+		scroll = len(middleLines) - middleH
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+
+	end := scroll + middleH
+	if end > len(middleLines) {
+		end = len(middleLines)
+	}
+
+	var visible string
+	if scroll < len(middleLines) {
+		visible = strings.Join(middleLines[scroll:end], "\n")
+	}
+	actualH := lipgloss.Height(visible)
+	if actualH < middleH {
+		visible += strings.Repeat("\n", middleH-actualH)
+	}
+
+	if len(middleLines) > middleH {
+		pct := 100
+		if denom := len(middleLines) - middleH; denom > 0 {
+			pct = scroll * 100 / denom
+		}
+		indicator := lipgloss.NewStyle().
+			Foreground(colorMuted).
+			Width(contentW).
+			Align(lipgloss.Right).
+			Render(fmt.Sprintf("scroll %d%%", pct))
+		top = lipgloss.JoinVertical(lipgloss.Left, post, "", rule, indicator)
+		topH = lipgloss.Height(top)
+		middleH = availInner - topH - bottomH
+		if middleH < 4 {
+			middleH = 4
+		}
+		// recompute visible window with adjusted middleH
+		if scroll+middleH > len(middleLines) {
+			scroll = len(middleLines) - middleH
+		}
+		if scroll < 0 {
+			scroll = 0
+		}
+		end = scroll + middleH
+		if end > len(middleLines) {
+			end = len(middleLines)
+		}
+		visible = strings.Join(middleLines[scroll:end], "\n")
+		actualH = lipgloss.Height(visible)
+		if actualH < middleH {
+			visible += strings.Repeat("\n", middleH-actualH)
+		}
+	}
+
+	inner := lipgloss.JoinVertical(lipgloss.Left, top, visible, bottom)
+
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorAccent).
 		Padding(1, 2).
-		Width(popupW - 4).
 		Render(inner)
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
+
+func renderPostBlock(c *Commit, width int, selected bool) string {
+	header := fmt.Sprintf("%s  %s  %s",
+		commitAuthorStyle.Bold(true).Render(c.Author),
+		commitTimeStyle.Render(humanizeTime(c.At)),
+		commitSHAStyle.Render(c.SHA),
+	)
+	body := commitMsgStyle.Render(wrap(c.Message, width-4))
+	likeMark := likeStyle.Render("♥")
+	if c.Liked {
+		likeMark = likedStyle.Render("♥")
+	}
+	stats := fmt.Sprintf("%s %d   %s %d",
+		likeMark, c.Likes,
+		commentCountStyle.Render("💬"), len(c.Comments),
+	)
+	content := strings.Join([]string{header, "", body, "", stats}, "\n")
+
+	box := lipgloss.NewStyle().Padding(0, 1).Width(width - 4)
+	if selected {
+		return box.Border(lipgloss.RoundedBorder()).BorderForeground(colorAccent).Render(content)
+	}
+	return box.Border(lipgloss.HiddenBorder()).Render(content)
+}
+
+func renderCommentBlock(cm Comment, depth, width int, selected bool) string {
+	indent := strings.Repeat("  ", depth)
+	innerW := width - len(indent) - 4 // 2 border, 2 padding
+	if innerW < 12 {
+		innerW = 12
+	}
+
+	header := fmt.Sprintf("%s  %s",
+		commentAuthorStyle.Render(cm.Author),
+		commitTimeStyle.Render(humanizeTime(cm.At)),
+	)
+	body := commentBodyStyle.Render(wrap(cm.Body, innerW))
+	likeMark := likeStyle.Render("♥")
+	if cm.Liked {
+		likeMark = likedStyle.Render("♥")
+	}
+	stats := fmt.Sprintf("%s %d", likeMark, cm.Likes)
+	if len(cm.Comments) > 0 {
+		stats += "   " + commentCountStyle.Render("↳") + lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf(" %d", len(cm.Comments)))
+	}
+	content := strings.Join([]string{header, body, stats}, "\n")
+
+	box := lipgloss.NewStyle().Padding(0, 1).Width(innerW)
+	if selected {
+		box = box.Border(lipgloss.RoundedBorder()).BorderForeground(colorAccent)
+	} else {
+		box = box.Border(lipgloss.HiddenBorder())
+	}
+	return lipgloss.NewStyle().PaddingLeft(len(indent)).Render(box.Render(content))
+}
+
 
 func (m model) renderFooter() string {
 	var keys []struct{ k, d string }
 	switch m.mode {
 	case modeCompose:
 		keys = []struct{ k, d string }{
-			{"ctrl+s", "push"},
-			{"enter", "newline"},
+			{"enter", "push"},
+			{"ctrl+enter", "newline"},
 			{"esc", "cancel"},
 		}
-	case modeComment:
+	case modeDetails:
+		if m.commentInput.Focused() {
+			keys = []struct{ k, d string }{
+				{"enter", "post"},
+				{"ctrl+enter", "newline"},
+				{"esc", "back to thread"},
+			}
+		} else {
+			keys = []struct{ k, d string }{
+				{"j/k", "select"},
+				{"l", "like"},
+				{"r", "reply"},
+				{"esc", "close"},
+			}
+		}
+	case modeBranchPicker:
 		keys = []struct{ k, d string }{
-			{"ctrl+s", "post"},
-			{"enter", "newline"},
+			{"j/k", "move"},
+			{"enter", "checkout"},
 			{"esc", "cancel"},
 		}
 	default:
 		keys = []struct{ k, d string }{
 			{"n", "new commit"},
-			{"c", "comment"},
+			{"enter", "open"},
 			{"l", "like"},
 			{"j/k", "move"},
-			{"tab", "switch pane"},
+			{"tab", "next branch"},
+			{"b", "all branches"},
 			{"q", "quit"},
 		}
 	}
@@ -444,7 +734,8 @@ func (m model) renderFooter() string {
 	if m.flash != "" {
 		flash = lipgloss.NewStyle().Foreground(colorOk).Render("  " + m.flash)
 	}
-	return statusStyle.Render(help) + flash
+	inner := statusStyle.Render(help) + flash
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, inner)
 }
 
 func wrap(s string, width int) string {

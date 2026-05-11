@@ -3,9 +3,12 @@ package main
 import "time"
 
 type Comment struct {
-	Author string
-	Body   string
-	At     time.Time
+	Author   string
+	Body     string
+	At       time.Time
+	Likes    int
+	Liked    bool
+	Comments []Comment
 }
 
 type Commit struct {
@@ -36,8 +39,22 @@ func seedBranches() []Branch {
 					Message: `another day, another auto-generated README that gaslights me about features that don't exist. the grift is full stack now.`,
 					Likes:   2417,
 					Comments: []Comment{
-						{Author: "@nullpointer", Body: "I asked it to write tests and it wrote assertions for the bugs.", At: h(8 * time.Minute)},
-						{Author: "@junior_dev", Body: "wait that's not a feature?", At: h(5 * time.Minute)},
+						{
+							Author: "@nullpointer", Body: "I asked it to write tests and it wrote assertions for the bugs.",
+							At: h(8 * time.Minute), Likes: 612,
+							Comments: []Comment{
+								{Author: "@yamlhater", Body: "you fool, the bugs ARE the spec now", At: h(7 * time.Minute), Likes: 198},
+								{Author: "@senior_intern", Body: "deleted the tests, ship it", At: h(6 * time.Minute), Likes: 84},
+							},
+						},
+						{
+							Author: "@junior_dev", Body: "wait that's not a feature?",
+							At: h(5 * time.Minute), Likes: 47,
+							Comments: []Comment{
+								{Author: "@recovering_pm", Body: "we'll roadmap it", At: h(4 * time.Minute), Likes: 23},
+							},
+						},
+						{Author: "@devops_bard", Body: "the README is the product. always was.", At: h(3 * time.Minute), Likes: 311},
 					},
 				},
 				{

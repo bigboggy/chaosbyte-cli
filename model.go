@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -8,20 +9,16 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type focus int
-
-const (
-	focusBranches focus = iota
-	focusFeed
-)
-
 type mode int
 
 const (
 	modeNormal mode = iota
 	modeCompose
-	modeComment
+	modeDetails
+	modeBranchPicker
 )
+
+const visibleTabs = 3
 
 type model struct {
 	branches []Branch
@@ -29,11 +26,14 @@ type model struct {
 	branchIdx int
 	commitIdx int
 
-	focus focus
-	mode  mode
+	mode mode
 
 	commitInput  textarea.Model
 	commentInput textarea.Model
+
+	detailsSelIdx int // -1 = post, 0..N-1 = flat comment index
+
+	branchPickerIdx int
 
 	width  int
 	height int
@@ -46,7 +46,7 @@ type tickMsg time.Time
 
 func newModel() model {
 	ci := textarea.New()
-	ci.Placeholder = `what did you ship?  (Ctrl+S to push, Enter for newline, Esc to cancel)`
+	ci.Placeholder = `what did you ship?  (Enter to push, Ctrl+Enter for newline, Esc to cancel)`
 	ci.Prompt = ""
 	ci.ShowLineNumbers = false
 	ci.CharLimit = 0
@@ -61,10 +61,38 @@ func newModel() model {
 
 	return model{
 		branches:     seedBranches(),
-		focus:        focusBranches,
 		commitInput:  ci,
 		commentInput: cm,
 	}
+}
+
+// visibleTabBranches returns the branch indices to show as tabs, ensuring the
+// active branch is always one of them.
+func (m *model) visibleTabBranches() []int {
+	n := len(m.branches)
+	if n == 0 {
+		return nil
+	}
+	limit := visibleTabs
+	if n < limit {
+		limit = n
+	}
+	idxs := make([]int, 0, limit)
+	for i := 0; i < limit; i++ {
+		idxs = append(idxs, i)
+	}
+	hasActive := false
+	for _, i := range idxs {
+		if i == m.branchIdx {
+			hasActive = true
+			break
+		}
+	}
+	if !hasActive {
+		idxs[len(idxs)-1] = m.branchIdx
+		sort.Ints(idxs)
+	}
+	return idxs
 }
 
 func (m model) Init() tea.Cmd {
@@ -124,8 +152,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.mode {
 		case modeCompose:
 			return m.updateCompose(msg)
-		case modeComment:
-			return m.updateCommentMode(msg)
+		case modeDetails:
+			return m.updateDetails(msg)
+		case modeBranchPicker:
+			return m.updateBranchPicker(msg)
 		}
 		return m.updateNormal(msg)
 	}
@@ -134,6 +164,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateCompose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if isNewlineKey(msg.String()) {
+		m.commitInput.InsertString("\n")
+		return m, nil
+	}
 	if isSubmitKey(msg.String()) {
 		text := strings.TrimRight(strings.TrimSpace(m.commitInput.Value()), "\n")
 		if text != "" {
@@ -165,34 +199,69 @@ func (m model) updateCompose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) updateCommentMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if isSubmitKey(msg.String()) {
-		body := strings.TrimRight(strings.TrimSpace(m.commentInput.Value()), "\n")
-		if body != "" {
-			c := m.currentCommit()
-			if c != nil {
-				c.Comments = append(c.Comments, Comment{
-					Author: "you",
-					Body:   body,
-					At:     time.Now(),
-				})
-				m.setFlash("comment posted")
-			}
+func (m model) updateDetails(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.commentInput.Focused() {
+		if isNewlineKey(msg.String()) {
+			m.commentInput.InsertString("\n")
+			return m, nil
 		}
+		if isSubmitKey(msg.String()) {
+			body := strings.TrimRight(strings.TrimSpace(m.commentInput.Value()), "\n")
+			if body != "" {
+				target := m.detailsReplyTarget()
+				if target != nil {
+					*target = append(*target, Comment{
+						Author: "@you",
+						Body:   body,
+						At:     time.Now(),
+					})
+					m.setFlash("reply posted")
+				}
+			}
+			m.commentInput.SetValue("")
+			m.commentInput.Blur()
+			return m, nil
+		}
+		if msg.String() == "esc" {
+			m.commentInput.Blur()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.commentInput, cmd = m.commentInput.Update(msg)
+		return m, cmd
+	}
+
+	switch msg.String() {
+	case "esc", "q":
 		m.commentInput.SetValue("")
-		m.commentInput.Blur()
 		m.mode = modeNormal
 		return m, nil
-	}
-	if msg.String() == "esc" {
-		m.commentInput.SetValue("")
-		m.commentInput.Blur()
-		m.mode = modeNormal
+	case "j", "down":
+		flat := m.detailsFlat()
+		if m.detailsSelIdx < len(flat)-1 {
+			m.detailsSelIdx++
+		}
 		return m, nil
+	case "k", "up":
+		if m.detailsSelIdx > -1 {
+			m.detailsSelIdx--
+		}
+		return m, nil
+	case "g":
+		m.detailsSelIdx = -1
+		return m, nil
+	case "G":
+		flat := m.detailsFlat()
+		m.detailsSelIdx = len(flat) - 1
+		return m, nil
+	case "l":
+		m.detailsLikeSelected()
+		return m, nil
+	case "r", "i", "enter":
+		m.commentInput.Focus()
+		return m, textarea.Blink
 	}
-	var cmd tea.Cmd
-	m.commentInput, cmd = m.commentInput.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -201,19 +270,52 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "tab":
-		if m.focus == focusBranches {
-			m.focus = focusFeed
-		} else {
-			m.focus = focusBranches
+		visible := m.visibleTabBranches()
+		if len(visible) > 0 {
+			pos := -1
+			for i, idx := range visible {
+				if idx == m.branchIdx {
+					pos = i
+					break
+				}
+			}
+			next := (pos + 1) % len(visible)
+			m.branchIdx = visible[next]
+			m.commitIdx = 0
 		}
 		return m, nil
 
 	case "shift+tab":
-		if m.focus == focusFeed {
-			m.focus = focusBranches
-		} else {
-			m.focus = focusFeed
+		visible := m.visibleTabBranches()
+		if len(visible) > 0 {
+			pos := -1
+			for i, idx := range visible {
+				if idx == m.branchIdx {
+					pos = i
+					break
+				}
+			}
+			prev := pos - 1
+			if prev < 0 {
+				prev = len(visible) - 1
+			}
+			m.branchIdx = visible[prev]
+			m.commitIdx = 0
 		}
+		return m, nil
+
+	case "1", "2", "3":
+		visible := m.visibleTabBranches()
+		idx := int(msg.String()[0] - '1')
+		if idx < len(visible) {
+			m.branchIdx = visible[idx]
+			m.commitIdx = 0
+		}
+		return m, nil
+
+	case "b", "4":
+		m.mode = modeBranchPicker
+		m.branchPickerIdx = m.branchIdx
 		return m, nil
 
 	case "n", "i":
@@ -223,55 +325,37 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textarea.Blink
 
 	case "j", "down":
-		if m.focus == focusBranches {
-			if m.branchIdx < len(m.branches)-1 {
-				m.branchIdx++
-				m.commitIdx = 0
-			}
-		} else if m.focus == focusFeed {
-			b := m.currentBranch()
-			if b != nil && m.commitIdx < len(b.Commits)-1 {
-				m.commitIdx++
-			}
+		b := m.currentBranch()
+		if b != nil && m.commitIdx < len(b.Commits)-1 {
+			m.commitIdx++
 		}
 		return m, nil
 
 	case "k", "up":
-		if m.focus == focusBranches {
-			if m.branchIdx > 0 {
-				m.branchIdx--
-				m.commitIdx = 0
-			}
-		} else if m.focus == focusFeed {
-			if m.commitIdx > 0 {
-				m.commitIdx--
-			}
+		if m.commitIdx > 0 {
+			m.commitIdx--
 		}
 		return m, nil
 
 	case "l":
-		if m.focus == focusFeed {
-			c := m.currentCommit()
-			if c != nil {
-				if c.Liked {
-					c.Liked = false
-					c.Likes--
-					m.setFlash("unliked")
-				} else {
-					c.Liked = true
-					c.Likes++
-					m.setFlash("liked")
-				}
+		c := m.currentCommit()
+		if c != nil {
+			toggleLike(&c.Liked, &c.Likes)
+			if c.Liked {
+				m.setFlash("liked")
+			} else {
+				m.setFlash("unliked")
 			}
 		}
 		return m, nil
 
-	case "c":
-		if m.focus == focusFeed && m.currentCommit() != nil {
-			m.mode = modeComment
+	case "enter", "o":
+		if m.currentCommit() != nil {
+			m.mode = modeDetails
+			m.detailsSelIdx = -1
 			m.commentInput.SetValue("")
-			m.commentInput.Focus()
-			return m, textarea.Blink
+			m.commentInput.Blur()
+			return m, nil
 		}
 		return m, nil
 	}
@@ -279,9 +363,121 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateBranchPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "ctrl+c", "b":
+		m.mode = modeNormal
+		return m, nil
+	case "j", "down":
+		if m.branchPickerIdx < len(m.branches)-1 {
+			m.branchPickerIdx++
+		}
+		return m, nil
+	case "k", "up":
+		if m.branchPickerIdx > 0 {
+			m.branchPickerIdx--
+		}
+		return m, nil
+	case "g":
+		m.branchPickerIdx = 0
+		return m, nil
+	case "G":
+		m.branchPickerIdx = len(m.branches) - 1
+		return m, nil
+	case "enter":
+		if m.branchPickerIdx >= 0 && m.branchPickerIdx < len(m.branches) {
+			m.branchIdx = m.branchPickerIdx
+			m.commitIdx = 0
+			m.setFlash("checked out " + m.branches[m.branchIdx].Name)
+		}
+		m.mode = modeNormal
+		return m, nil
+	}
+	return m, nil
+}
+
+type flatComment struct {
+	depth int
+	c     *Comment
+}
+
+func flattenComments(comments []Comment, depth int) []flatComment {
+	idxs := make([]int, len(comments))
+	for i := range idxs {
+		idxs[i] = i
+	}
+	sort.SliceStable(idxs, func(i, j int) bool {
+		return comments[idxs[i]].Likes > comments[idxs[j]].Likes
+	})
+	var out []flatComment
+	for _, i := range idxs {
+		c := &comments[i]
+		out = append(out, flatComment{depth: depth, c: c})
+		out = append(out, flattenComments(c.Comments, depth+1)...)
+	}
+	return out
+}
+
+func (m *model) detailsFlat() []flatComment {
+	c := m.currentCommit()
+	if c == nil {
+		return nil
+	}
+	return flattenComments(c.Comments, 0)
+}
+
+func (m *model) detailsReplyTarget() *[]Comment {
+	c := m.currentCommit()
+	if c == nil {
+		return nil
+	}
+	if m.detailsSelIdx < 0 {
+		return &c.Comments
+	}
+	flat := flattenComments(c.Comments, 0)
+	if m.detailsSelIdx >= len(flat) {
+		return &c.Comments
+	}
+	return &flat[m.detailsSelIdx].c.Comments
+}
+
+func (m *model) detailsLikeSelected() {
+	c := m.currentCommit()
+	if c == nil {
+		return
+	}
+	if m.detailsSelIdx < 0 {
+		toggleLike(&c.Liked, &c.Likes)
+		return
+	}
+	flat := flattenComments(c.Comments, 0)
+	if m.detailsSelIdx >= len(flat) {
+		return
+	}
+	toggleLike(&flat[m.detailsSelIdx].c.Liked, &flat[m.detailsSelIdx].c.Likes)
+}
+
+func toggleLike(liked *bool, likes *int) {
+	if *liked {
+		*liked = false
+		*likes--
+	} else {
+		*liked = true
+		*likes++
+	}
+}
+
 func isSubmitKey(s string) bool {
 	switch s {
-	case "ctrl+s", "ctrl+d", "ctrl+enter", "alt+enter":
+	case "enter", "ctrl+s", "ctrl+d":
+		return true
+	}
+	return false
+}
+
+func isNewlineKey(s string) bool {
+	switch s {
+	case "ctrl+enter", "alt+enter", "ctrl+j":
 		return true
 	}
 	return false
