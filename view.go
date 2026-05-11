@@ -32,10 +32,10 @@ func (m model) View() string {
 
 	var body string
 	switch m.screen {
-	case screenHome:
-		body = m.renderHome(m.width, bodyH)
-	case screenChat:
-		body = m.renderChat(m.width, bodyH)
+	case screenIntro:
+		return m.renderIntroFullscreen()
+	case screenLobby:
+		body = m.renderLobby(m.width, bodyH)
 	case screenNews:
 		body = m.renderNews(m.width, bodyH)
 	case screenResources:
@@ -49,6 +49,10 @@ func (m model) View() string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+}
+
+func (m model) renderIntroFullscreen() string {
+	return m.renderIntro(m.width, m.height)
 }
 
 // feedShellWidth is the width budget for the centered feed area.
@@ -83,15 +87,11 @@ func (m model) renderHeader() string {
 
 	var ctx string
 	switch m.screen {
-	case screenHome:
-		ctx = lipgloss.NewStyle().Foreground(colorMuted).Render("all-in-one for devs & vibe coders")
-	case screenChat:
+	case screenLobby:
 		if m.chatActive >= 0 && m.chatActive < len(m.channels) {
 			ch := m.channels[m.chatActive]
 			ctx = lipgloss.NewStyle().Foreground(colorOk).Render(ch.Name) + sep +
 				lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d online", ch.Online))
-		} else {
-			ctx = lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d channels", len(m.channels)))
 		}
 	case screenNews:
 		ctx = lipgloss.NewStyle().Foreground(colorMuted).Render(fmt.Sprintf("%d/%d", m.newsIdx+1, len(m.newsItems)))
@@ -172,27 +172,14 @@ func (m model) renderFooter() string {
 
 func (m model) footerKeys() []keyHint {
 	switch m.screen {
-	case screenHome:
+	case screenLobby:
 		return []keyHint{
-			{"1-6", "jump"}, {"hjkl", "move"}, {"enter", "open"}, {"q", "quit"},
-		}
-	case screenChat:
-		if m.chatInputActive {
-			return []keyHint{
-				{"enter", "send"}, {"ctrl+enter", "newline"}, {"esc", "cancel"},
-			}
-		}
-		if m.chatActive >= 0 {
-			return []keyHint{
-				{"i", "type"}, {"j/k", "scroll"}, {"G", "newest"}, {"esc", "lobby"}, {"H", "home"},
-			}
-		}
-		return []keyHint{
-			{"j/k", "move"}, {"enter", "join"}, {"n", "new"}, {"esc", "home"}, {"q", "quit"},
+			{"enter", "send"}, {"tab", "autocomplete"}, {"/help", "commands"},
+			{"↑/↓", "history"}, {"pgup/pgdn", "scroll"}, {"ctrl+c", "quit"},
 		}
 	case screenNews:
 		return []keyHint{
-			{"j/k", "move"}, {"enter", "open"}, {"y", "copy url"}, {"esc", "home"}, {"q", "quit"},
+			{"j/k", "move"}, {"enter", "open"}, {"y", "copy url"}, {"esc", "lobby"},
 		}
 	case screenResources:
 		if m.resourcesQueryActive {
@@ -201,7 +188,7 @@ func (m model) footerKeys() []keyHint {
 			}
 		}
 		return []keyHint{
-			{"tab", "tabs"}, {"j/k", "move"}, {"enter", "open"}, {"/", "search"}, {"esc", "home"},
+			{"tab", "tabs"}, {"j/k", "move"}, {"enter", "open"}, {"/", "search"}, {"esc", "lobby"},
 		}
 	case screenSpotlight:
 		if m.spotlightInputActive {
@@ -210,7 +197,7 @@ func (m model) footerKeys() []keyHint {
 			}
 		}
 		return []keyHint{
-			{"i", "chat"}, {"j/k", "scroll"}, {"o", "open repo"}, {"esc", "home"}, {"q", "quit"},
+			{"i", "chat"}, {"j/k", "scroll"}, {"o", "open repo"}, {"esc", "lobby"},
 		}
 	case screenGames:
 		if m.gameState == gameStateBugHunter {
@@ -219,7 +206,7 @@ func (m model) footerKeys() []keyHint {
 			}
 		}
 		return []keyHint{
-			{"j/k", "move"}, {"enter", "play"}, {"esc", "home"}, {"q", "quit"},
+			{"j/k", "move"}, {"enter", "play"}, {"esc", "lobby"},
 		}
 	case screenDiscussions:
 		switch m.mode {
@@ -243,7 +230,7 @@ func (m model) footerKeys() []keyHint {
 		}
 		return []keyHint{
 			{"n", "new"}, {"enter", "open"}, {"l", "like"}, {"j/k", "move"},
-			{"tab", "next branch"}, {"b", "branches"}, {"esc", "home"},
+			{"tab", "branch"}, {"b", "branches"}, {"esc", "lobby"},
 		}
 	}
 	return nil

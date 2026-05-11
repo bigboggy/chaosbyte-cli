@@ -96,12 +96,12 @@ func seedSpotlightChat() []ChatMessage {
 	now := time.Now()
 	h := func(d time.Duration) time.Time { return now.Add(-d) }
 	return []ChatMessage{
-		{"@yamlhater", "wait this is what i've been needing the whole time", h(4 * time.Minute)},
-		{"@nullpointer", "the demo gif alone sold me, send help i'm installing it now", h(3 * time.Minute)},
-		{"@vibe_master", "imagine using this for one (1) week and writing a medium post about it", h(150 * time.Second)},
-		{"@devops_bard", "i tried this, then i tried to uninstall it. could not.", h(70 * time.Second)},
-		{"@junior_dev", "is this the one where you press a key and it just works? or is this the OTHER one", h(40 * time.Second)},
-		{"@standup_ghost", "they're all the one where you press a key and it just works", h(20 * time.Second)},
+		{"@yamlhater", "wait this is what i've been needing the whole time", h(4 * time.Minute), ChatNormal},
+		{"@nullpointer", "the demo gif alone sold me, send help i'm installing it now", h(3 * time.Minute), ChatNormal},
+		{"@vibe_master", "imagine using this for one (1) week and writing a medium post about it", h(150 * time.Second), ChatNormal},
+		{"@devops_bard", "i tried this, then i tried to uninstall it. could not.", h(70 * time.Second), ChatNormal},
+		{"@junior_dev", "is this the one where you press a key and it just works? or is this the OTHER one", h(40 * time.Second), ChatNormal},
+		{"@standup_ghost", "they're all the one where you press a key and it just works", h(20 * time.Second), ChatNormal},
 	}
 }
 
@@ -271,7 +271,7 @@ func (m model) renderSpotlightChat(width, height int) string {
 	title := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("live discussion")
 	var lines []string
 	for _, msg := range m.spotlightChat {
-		lines = append(lines, renderChatLine(msg, width)...)
+		lines = append(lines, renderLobbyLine(msg, width)...)
 	}
 	maxScroll := len(lines) - (height - 1)
 	if maxScroll < 0 {

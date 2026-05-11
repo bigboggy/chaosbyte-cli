@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type screen int
 
 const (
-	screenHome screen = iota
-	screenChat
+	screenIntro screen = iota
+	screenLobby
 	screenNews
 	screenResources
 	screenSpotlight
@@ -23,10 +24,10 @@ const (
 
 func (s screen) name() string {
 	switch s {
-	case screenHome:
-		return "home"
-	case screenChat:
-		return "chat"
+	case screenIntro:
+		return "intro"
+	case screenLobby:
+		return "lobby"
 	case screenNews:
 		return "news"
 	case screenResources:
@@ -52,22 +53,22 @@ const (
 
 const visibleTabs = 3
 
-// home tile layout: 3 cols × 3 rows (the seventh tile lives alone in row 3).
-const homeCols = 3
-
 type model struct {
 	screen screen
 
-	// home
-	homeIdx int
+	// intro
+	introStart time.Time
 
-	// chat
-	channels        []Channel
-	chatChannelIdx  int  // selection in lobby
-	chatActive      int  // -1 = lobby, >=0 = inside channel
-	chatInput       textarea.Model
-	chatInputActive bool
-	chatScroll      int
+	// lobby / chat
+	channels       []Channel
+	chatActive     int
+	chatScroll     int
+	lobbyInput     textinput.Model
+	lobbyHistory   []string
+	historyIdx     int
+	joinPosted     bool
+	completionStem string
+	completionIdx  int
 
 	// news
 	newsItems  []NewsItem
@@ -75,7 +76,7 @@ type model struct {
 	newsScroll int
 
 	// resources
-	resourcesTab         int // 0 trending, 1 top, 2 repos, 3 search
+	resourcesTab         int
 	resourcesIdx         int
 	resourcesQuery       string
 	resourcesQueryActive bool
@@ -96,7 +97,7 @@ type model struct {
 	gameState gameState
 	bugHunter bugHunterState
 
-	// discussions (existing)
+	// discussions
 	branches        []Branch
 	branchIdx       int
 	commitIdx       int
@@ -133,13 +134,6 @@ func newModel() model {
 	cm.CharLimit = 0
 	cm.SetHeight(6)
 
-	chat := textarea.New()
-	chat.Placeholder = "type a message... (enter to send, esc to cancel)"
-	chat.Prompt = ""
-	chat.ShowLineNumbers = false
-	chat.CharLimit = 0
-	chat.SetHeight(3)
-
 	spot := textarea.New()
 	spot.Placeholder = "join the discussion... (enter to send)"
 	spot.Prompt = ""
@@ -148,10 +142,11 @@ func newModel() model {
 	spot.SetHeight(3)
 
 	return model{
-		screen:         screenHome,
+		screen:         screenIntro,
+		introStart:     time.Now(),
 		branches:       seedBranches(),
 		channels:       seedChannels(),
-		chatActive:     -1,
+		chatActive:     0,
 		newsItems:      seedNews(),
 		skillsTrending: seedTrendingSkills(),
 		skillsTop:      seedTopSkills(),
@@ -162,8 +157,8 @@ func newModel() model {
 		bugHunter:      newBugHunter(),
 		commitInput:    ci,
 		commentInput:   cm,
-		chatInput:      chat,
 		spotlightInput: spot,
+		lobbyInput:     newLobbyInput(),
 		now:            time.Now(),
 	}
 }
@@ -196,7 +191,7 @@ func (m *model) visibleTabBranches() []int {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, tickEvery())
+	return tea.Batch(textarea.Blink, textinput.Blink, tickEvery(), introTickCmd())
 }
 
 func tickEvery() tea.Cmd {
@@ -239,7 +234,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		taW, _ := m.popupTextareaSize()
 		m.commitInput.SetWidth(taW)
 		m.commentInput.SetWidth(taW)
-		m.chatInput.SetWidth(taW)
 		m.spotlightInput.SetWidth(taW)
 		return m, nil
 
@@ -251,6 +245,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickEvery()
 
+	case introTickMsg:
+		if m.screen != screenIntro {
+			return m, nil
+		}
+		if time.Since(m.introStart).Milliseconds() >= introFadeEnd {
+			return m.finishIntro(), nil
+		}
+		return m, introTickCmd()
+
 	case tea.KeyMsg:
 		return m.routeKey(msg)
 	}
@@ -258,55 +261,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// routeKey dispatches keystrokes. Global keys (1–7, esc, q) only apply when no
-// text input is focused on the current screen.
 func (m model) routeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.screen == screenIntro {
+		return m.updateIntro(msg)
+	}
+	if m.screen == screenLobby {
+		return m.updateLobby(msg)
+	}
 	if m.inputFocused() {
 		return m.updateScreen(msg)
 	}
 
+	// Global keys for non-lobby screens (when nothing else is grabbing input).
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
-	case "q":
-		if m.screen == screenHome {
-			return m, tea.Quit
-		}
-		return m.goHome(), nil
 	case "esc":
-		if m.screen == screenHome {
-			return m, nil
-		}
-		// let screens with sub-state intercept esc first
 		mm, handled, cmd := m.screenInterceptEsc()
 		if handled {
 			return mm, cmd
 		}
-		return m.goHome(), nil
-	case "H", "~", "0":
-		return m.goHome(), nil
-	case "1":
-		return m.jumpTo(screenChat), nil
-	case "2":
-		return m.jumpTo(screenNews), nil
-	case "3":
-		return m.jumpTo(screenResources), nil
-	case "4":
-		return m.jumpTo(screenSpotlight), nil
-	case "5":
-		return m.jumpTo(screenGames), nil
-	case "6":
-		return m.jumpTo(screenDiscussions), nil
+		return m.toLobby(), nil
+	case "q":
+		return m.toLobby(), nil
 	}
 	return m.updateScreen(msg)
 }
 
 func (m model) inputFocused() bool {
 	switch m.screen {
+	case screenLobby:
+		return true
 	case screenDiscussions:
 		return m.mode == modeCompose || (m.mode == modeDetails && m.commentInput.Focused())
-	case screenChat:
-		return m.chatInputActive
 	case screenSpotlight:
 		return m.spotlightInputActive
 	case screenResources:
@@ -315,40 +302,20 @@ func (m model) inputFocused() bool {
 	return false
 }
 
-func (m model) jumpTo(s screen) tea.Model {
-	m.screen = s
-	if s == screenChat {
-		m.chatActive = -1
-	}
-	if s == screenGames {
-		m.gameState = gameStateList
-	}
-	return m
-}
-
-func (m model) goHome() tea.Model {
-	m.screen = screenHome
+func (m model) toLobby() tea.Model {
+	m.screen = screenLobby
 	m.mode = modeNormal
 	m.commitInput.Blur()
 	m.commentInput.Blur()
-	m.chatInput.Blur()
 	m.spotlightInput.Blur()
-	m.chatInputActive = false
 	m.spotlightInputActive = false
 	m.resourcesQueryActive = false
+	m.lobbyInput.Focus()
 	return m
 }
 
-// screenInterceptEsc lets a screen with sub-state handle esc (e.g. back out of
-// a channel to the lobby) before the global esc returns to home.
 func (m model) screenInterceptEsc() (tea.Model, bool, tea.Cmd) {
 	switch m.screen {
-	case screenChat:
-		if m.chatActive >= 0 {
-			m.chatActive = -1
-			m.chatScroll = 0
-			return m, true, nil
-		}
 	case screenDiscussions:
 		if m.mode != modeNormal {
 			m.mode = modeNormal
@@ -367,10 +334,8 @@ func (m model) screenInterceptEsc() (tea.Model, bool, tea.Cmd) {
 
 func (m model) updateScreen(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
-	case screenHome:
-		return m.updateHome(msg)
-	case screenChat:
-		return m.updateChat(msg)
+	case screenLobby:
+		return m.updateLobby(msg)
 	case screenNews:
 		return m.updateNews(msg)
 	case screenResources:
@@ -413,7 +378,7 @@ func (m model) updateCompose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if b != nil {
 				b.Commits = append([]Commit{{
 					SHA:     fakeSHA(),
-					Author:  "you",
+					Author:  meUser,
 					Message: text,
 					At:      time.Now(),
 				}}, b.Commits...)
@@ -449,7 +414,7 @@ func (m model) updateDetails(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				target := m.detailsReplyTarget()
 				if target != nil {
 					*target = append(*target, Comment{
-						Author: "@you",
+						Author: meUser,
 						Body:   body,
 						At:     time.Now(),
 					})
