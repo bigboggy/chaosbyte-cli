@@ -1,0 +1,320 @@
+// Package lobby is the chat-style entry point that doubles as the app's home
+// screen. It owns the channel list, manages an always-focused input, and
+// routes slash commands to other screens via screens.Navigate.
+//
+// Files in this package:
+//   - lobby.go     — Screen type, Init/Update/View, message posting
+//   - commands.go  — slash command registry + per-command handlers
+//   - completion.go — Tab autocomplete
+//   - seed.go      — fake channels + the @boggy username
+package lobby
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/bchayka/gitstatus/internal/screens"
+	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/bchayka/gitstatus/internal/ui"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Screen is the lobby's own state. The chat input is always focused, so this
+// screen reports InputFocused()==true and the app's global key handlers stay
+// out of the way.
+type Screen struct {
+	channels   []Channel
+	chatActive int
+	chatScroll int
+
+	input          textinput.Model
+	history        []string
+	historyIdx     int
+	completionStem string
+	completionIdx  int
+
+	joinPosted bool
+}
+
+// New constructs a fresh lobby with seeded channels and a focused input.
+func New() *Screen {
+	return &Screen{
+		channels:      seedChannels(),
+		chatActive:    0,
+		completionIdx: -1,
+		input:         newInput(),
+	}
+}
+
+func newInput() textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.CharLimit = 0
+	ti.Placeholder = "message #lobby or type /help"
+	ti.Focus()
+	return ti
+}
+
+func (s *Screen) Init() tea.Cmd { return textinput.Blink }
+
+func (s *Screen) Name() string  { return screens.LobbyID }
+func (s *Screen) Title() string { return "lobby" }
+
+func (s *Screen) HeaderContext() string {
+	ch := s.activeChannel()
+	if ch == nil {
+		return ""
+	}
+	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render(" · ")
+	return lipgloss.NewStyle().Foreground(theme.OK).Render(ch.Name) + sep +
+		lipgloss.NewStyle().Foreground(theme.Muted).Render(fmt.Sprintf("%d online", ch.Online))
+}
+
+func (s *Screen) Footer() []screens.KeyHint {
+	return []screens.KeyHint{
+		{Key: "enter", Desc: "send"},
+		{Key: "tab", Desc: "autocomplete"},
+		{Key: "/help", Desc: "commands"},
+		{Key: "↑/↓", Desc: "history"},
+		{Key: "pgup/pgdn", Desc: "scroll"},
+		{Key: "ctrl+c", Desc: "quit"},
+	}
+}
+
+func (s *Screen) InputFocused() bool { return true }
+
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
+
+func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		return s.handleKey(msg)
+	}
+	return s, nil
+}
+
+func (s *Screen) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return s, tea.Quit
+	case "enter":
+		s.resetCompletion()
+		return s.submit()
+	case "tab":
+		s.cycleCompletion(1)
+		return s, nil
+	case "shift+tab":
+		s.cycleCompletion(-1)
+		return s, nil
+	case "up":
+		s.recallHistory(-1)
+		return s, nil
+	case "down":
+		s.recallHistory(+1)
+		return s, nil
+	case "pgup":
+		s.chatScroll += 5
+		return s, nil
+	case "pgdown":
+		s.chatScroll -= 5
+		if s.chatScroll < 0 {
+			s.chatScroll = 0
+		}
+		return s, nil
+	case "esc":
+		s.input.SetValue("")
+		s.resetCompletion()
+		return s, nil
+	}
+	// any other key edits the input → completion cycle invalidates
+	s.resetCompletion()
+	var cmd tea.Cmd
+	s.input, cmd = s.input.Update(msg)
+	return s, cmd
+}
+
+func (s *Screen) submit() (screens.Screen, tea.Cmd) {
+	text := strings.TrimSpace(s.input.Value())
+	s.input.SetValue("")
+	if text == "" {
+		return s, nil
+	}
+	s.history = append(s.history, text)
+	s.historyIdx = len(s.history)
+
+	if strings.HasPrefix(text, "/") {
+		ss, cmd := s.handleSlash(text)
+		return ss, cmd
+	}
+	s.postUser(text)
+	return s, nil
+}
+
+func (s *Screen) recallHistory(delta int) {
+	if len(s.history) == 0 {
+		return
+	}
+	switch {
+	case delta < 0:
+		if s.historyIdx > 0 {
+			s.historyIdx--
+		}
+	case delta > 0:
+		if s.historyIdx < len(s.history) {
+			s.historyIdx++
+		}
+	}
+	if s.historyIdx >= len(s.history) {
+		s.input.SetValue("")
+		return
+	}
+	s.input.SetValue(s.history[s.historyIdx])
+	s.input.CursorEnd()
+}
+
+// ---------------------------------------------------------------------------
+// Posting helpers — used by both regular sends and slash command handlers
+// ---------------------------------------------------------------------------
+
+func (s *Screen) activeChannel() *Channel {
+	if s.chatActive < 0 || s.chatActive >= len(s.channels) {
+		return nil
+	}
+	return &s.channels[s.chatActive]
+}
+
+func (s *Screen) postUser(body string) {
+	ch := s.activeChannel()
+	if ch == nil {
+		return
+	}
+	ch.Messages = append(ch.Messages, ui.ChatMessage{
+		Author: MeUser, Body: body, At: time.Now(),
+	})
+	s.chatScroll = 0
+}
+
+func (s *Screen) postSystem(body string) {
+	ch := s.activeChannel()
+	if ch == nil {
+		return
+	}
+	for _, line := range strings.Split(body, "\n") {
+		ch.Messages = append(ch.Messages, ui.ChatMessage{
+			Author: "*", Body: line, At: time.Now(), Kind: ui.ChatSystem,
+		})
+	}
+	s.chatScroll = 0
+}
+
+// EnsureJoined posts the "entered the chat" join message once, then no-ops on
+// subsequent calls. Called by the router when transitioning from intro.
+func (s *Screen) EnsureJoined() {
+	if s.joinPosted {
+		return
+	}
+	if ch := s.activeChannel(); ch != nil {
+		ch.Messages = append(ch.Messages, ui.ChatMessage{
+			Author: MeUser, Body: "entered the chat", At: time.Now(), Kind: ui.ChatJoin,
+		})
+	}
+	s.joinPosted = true
+	s.chatScroll = 0
+}
+
+// ---------------------------------------------------------------------------
+// View
+// ---------------------------------------------------------------------------
+
+func (s *Screen) View(width, height int) string {
+	w := ui.FeedShellWidth(width)
+	contentW := w - 2
+
+	if s.chatActive < 0 || s.chatActive >= len(s.channels) {
+		s.chatActive = 0
+	}
+	ch := s.channels[s.chatActive]
+
+	bar := topBar(ch, contentW)
+	barH := lipgloss.Height(bar)
+
+	prompt := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+		Render("[" + strings.TrimPrefix(MeUser, "@") + "]> ")
+	s.input.Width = contentW - lipgloss.Width(prompt) - 1
+	inputLine := prompt + s.input.View()
+
+	completions := s.renderCompletionStrip(contentW)
+	extraH := 0
+	if completions != "" {
+		extraH = 1
+	}
+	chatH := height - barH - 1 - 3 - extraH
+	if chatH < 4 {
+		chatH = 4
+	}
+
+	var lines []string
+	for _, msg := range ch.Messages {
+		lines = append(lines, ui.RenderChatLine(msg, contentW)...)
+	}
+	visible := windowScrollback(lines, chatH, s.chatScroll)
+
+	parts := []string{
+		bar,
+		ui.Divider(contentW),
+		visible,
+		ui.Divider(contentW),
+	}
+	if completions != "" {
+		parts = append(parts, completions)
+	}
+	parts = append(parts, inputLine)
+	stacked := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, stacked)
+}
+
+func topBar(ch Channel, width int) string {
+	chName := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render(ch.Name)
+	online := lipgloss.NewStyle().Foreground(theme.OK).Render(fmt.Sprintf("%d online", ch.Online))
+	topic := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
+		Render("topic: " + ch.Topic)
+	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render("  ·  ")
+	left := chName + sep + online + sep + topic
+	if lipgloss.Width(left) > width {
+		left = ui.Truncate(left, width)
+	}
+	return left
+}
+
+// windowScrollback clamps the scroll offset and returns the visible slice
+// padded to exactly height rows so the input below it stays anchored.
+func windowScrollback(lines []string, height, scroll int) string {
+	maxScroll := len(lines) - height
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	end := len(lines) - scroll
+	start := end - height
+	if start < 0 {
+		start = 0
+	}
+	if end < start {
+		end = start
+	}
+	if end > len(lines) {
+		end = len(lines)
+	}
+	var visible string
+	if start < end {
+		visible = strings.Join(lines[start:end], "\n")
+	}
+	return ui.PadToHeight(visible, height)
+}

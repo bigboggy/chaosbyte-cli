@@ -10,7 +10,8 @@
       "Read(//tmp/**)",
       "Bash(command -v script)",
       "Bash(command -v figlet toilet)",
-      "Bash(figlet -f ANSIShadow CHAOSBYTE)"
+      "Bash(figlet -f ANSIShadow CHAOSBYTE)",
+      "Bash(bash -c ' *)"
     ]
   }
 }

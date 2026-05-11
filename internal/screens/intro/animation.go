@@ -1,0 +1,150 @@
+package intro
+
+import (
+	"math"
+	"strings"
+	"time"
+
+	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Phase boundaries in milliseconds since intro start. The "hold" window is
+// deliberately the longest phase — the logo is the brand moment.
+const (
+	phaseBootEnd   = 400  // boot lines type out
+	phaseBuildEnd  = 1000 // logo builds line by line (600ms)
+	phaseHoldEnd   = 3500 // logo holds with tagline (2500ms — the brand beat)
+	phaseShrinkEnd = 3800 // collapses to plain "CHAOSBYTE"
+	phaseByteEnd   = 4200 // morphs through binary → "byte"
+	phaseBlockEnd  = 4400 // single block
+	phaseFadeEnd   = 4600 // blank, then transition
+)
+
+var bootLines = []string{
+	"chaosbyte boot v0.1.0",
+	"",
+	"[ok] kernel              loaded",
+	"[ok] mesh.chaosbyte.dev  online",
+	"[ok] vibes               synced",
+	"[ok] tui driver          initialized",
+	"[ok] #lobby              ready",
+}
+
+// View renders the current animation frame, centered in the given viewport.
+func (s *Screen) View(width, height int) string {
+	ms := int(time.Since(s.start).Milliseconds())
+
+	var content string
+	switch {
+	case ms < phaseBootEnd:
+		content = renderBoot(ms)
+	case ms < phaseBuildEnd:
+		content = renderBuild(ms - phaseBootEnd)
+	case ms < phaseHoldEnd:
+		content = renderHold(ms - phaseBuildEnd)
+	case ms < phaseShrinkEnd:
+		content = renderShrink(ms - phaseHoldEnd)
+	case ms < phaseByteEnd:
+		content = renderByte(ms - phaseShrinkEnd)
+	case ms < phaseBlockEnd:
+		content = renderBlock(ms - phaseByteEnd)
+	default:
+		content = ""
+	}
+
+	skip := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
+		Render("press any key to skip")
+	frame := lipgloss.JoinVertical(lipgloss.Center, content, "", "", skip)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, frame)
+}
+
+func renderBoot(ms int) string {
+	revealed := ms / 55
+	if revealed > len(bootLines) {
+		revealed = len(bootLines)
+	}
+	var out []string
+	for i := 0; i < revealed; i++ {
+		line := bootLines[i]
+		style := lipgloss.NewStyle().Foreground(theme.OK)
+		if strings.HasPrefix(line, "chaosbyte") {
+			style = lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true)
+		}
+		out = append(out, style.Render(line))
+	}
+	if revealed < len(bootLines) && ms%500 < 250 {
+		out = append(out, lipgloss.NewStyle().Foreground(theme.Accent).Render("█"))
+	}
+	return strings.Join(out, "\n")
+}
+
+func renderBuild(ms int) string {
+	revealed := ms/100 + 1
+	if revealed > len(theme.LogoLines) {
+		revealed = len(theme.LogoLines)
+	}
+	var out []string
+	for i := 0; i < revealed; i++ {
+		out = append(out, lipgloss.NewStyle().
+			Foreground(theme.LogoGradient[i%len(theme.LogoGradient)]).
+			Bold(true).
+			Render(theme.LogoLines[i]))
+	}
+	return strings.Join(out, "\n")
+}
+
+func renderHold(ms int) string {
+	logo := theme.RenderLogo()
+	pulse := math.Abs(math.Sin(float64(ms) / 180.0))
+	color := theme.Accent
+	if pulse > 0.5 {
+		color = theme.Accent2
+	}
+	tagline := lipgloss.NewStyle().Foreground(color).Italic(true).
+		Render("an all-in-one place for devs and vibe coders")
+	dots := lipgloss.NewStyle().Foreground(theme.Muted).
+		Render(strings.Repeat(".", (ms/200)%4))
+	connecting := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
+		Render("connecting to #lobby") + dots
+	return lipgloss.JoinVertical(lipgloss.Center, logo, "", tagline, "", connecting)
+}
+
+func renderShrink(ms int) string {
+	progress := float64(ms) / float64(phaseShrinkEnd-phaseHoldEnd)
+	if progress < 0.4 {
+		mid := []string{
+			theme.LogoLines[1], theme.LogoLines[2], theme.LogoLines[3], theme.LogoLines[4],
+		}
+		return lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).
+			Render(strings.Join(mid, "\n"))
+	}
+	if progress < 0.7 {
+		mid := []string{theme.LogoLines[2], theme.LogoLines[3]}
+		return lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).
+			Render(strings.Join(mid, "\n"))
+	}
+	return lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).
+		Render("C H A O S B Y T E")
+}
+
+func renderByte(ms int) string {
+	progress := float64(ms) / float64(phaseByteEnd-phaseShrinkEnd)
+	if progress < 0.3 {
+		return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+			Render("01000010")
+	}
+	if progress < 0.7 {
+		return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+			Render("byte")
+	}
+	return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+		Render("b")
+}
+
+func renderBlock(ms int) string {
+	if ms%140 < 70 {
+		return lipgloss.NewStyle().Foreground(theme.Accent).Render("▪")
+	}
+	return lipgloss.NewStyle().Foreground(theme.Muted).Render("·")
+}
