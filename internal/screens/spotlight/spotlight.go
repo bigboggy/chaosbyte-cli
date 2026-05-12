@@ -50,6 +50,13 @@ func New() *Screen {
 
 func (s *Screen) Init() tea.Cmd { return field.TickCmd() }
 
+// OnEnter is the router's field-driven entry hook: pulse the backdrop and
+// force the title to re-register so the cascade replays on re-entry.
+func (s *Screen) OnEnter() {
+	s.backdrop.Pulse(0.8)
+	s.fgIdx = -1
+}
+
 func (s *Screen) Name() string  { return screens.SpotlightID }
 func (s *Screen) Title() string { return "spotlight" }
 

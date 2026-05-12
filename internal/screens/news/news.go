@@ -27,6 +27,9 @@ func New() *Screen { return &Screen{items: seedItems(), backdrop: field.NewBackd
 
 func (s *Screen) Init() tea.Cmd { return field.TickCmd() }
 
+// OnEnter is the router's field-driven entry hook.
+func (s *Screen) OnEnter() { s.backdrop.Pulse(0.7) }
+
 func (s *Screen) Name() string  { return screens.NewsID }
 func (s *Screen) Title() string { return "news" }
 

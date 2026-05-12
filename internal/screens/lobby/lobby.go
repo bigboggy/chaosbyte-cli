@@ -42,6 +42,9 @@ type Screen struct {
 	// keystroke pulses its motion accumulator so typing produces palette
 	// drift the same way mouse motion does on the ertdfgcvb site.
 	backdrop *field.Backdrop
+
+	welcomeUntil  time.Time
+	welcomeActive bool
 }
 
 // New constructs a fresh lobby with seeded channels and a focused input.
@@ -112,6 +115,10 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		return s, nil
 	case field.TickMsg:
 		s.backdrop.Tick(time.Time(m))
+		if s.welcomeActive && time.Time(m).After(s.welcomeUntil) {
+			s.backdrop.SetForegroundLines(nil)
+			s.welcomeActive = false
+		}
 		return s, field.TickCmd()
 	}
 	return s, nil
@@ -265,6 +272,18 @@ func (s *Screen) EnsureJoined() {
 	}
 	s.joinPosted = true
 	s.chatScroll = 0
+}
+
+// OnEnter is the router's field-driven entry hook. We pulse the backdrop hard
+// and register the user's nick as a foreground line so it flap-spins across
+// the field; both decay naturally over a few seconds.
+func (s *Screen) OnEnter() {
+	s.backdrop.Pulse(1.0)
+	s.backdrop.SetForegroundLines([]field.Line{
+		{Row: 0, Text: MeUser + " · welcome to chaosbyte"},
+	})
+	s.welcomeUntil = time.Now().Add(5 * time.Second)
+	s.welcomeActive = true
 }
 
 // ---------------------------------------------------------------------------

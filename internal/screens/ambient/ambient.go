@@ -63,6 +63,9 @@ func defaultLines(currentWord, typing string) []field.Line {
 
 func (s *Screen) Init() tea.Cmd { return tickCmd() }
 
+// OnEnter is the router's field-driven entry hook.
+func (s *Screen) OnEnter() { s.engine.Pulse(0.8) }
+
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:

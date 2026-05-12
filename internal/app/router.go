@@ -59,6 +59,12 @@ func (a *App) navigate(target string) tea.Cmd {
 			lob.EnsureJoined()
 		}
 	}
+	// Field-driven entry effect: screens that implement Entrant get a hook
+	// to pulse their backdrop, register a welcome overlay, or otherwise
+	// drive the engine into the moment.
+	if ent, ok := a.screens[target].(screens.Entrant); ok {
+		ent.OnEnter()
+	}
 	// Re-initialise the activated screen so screens that drive their own
 	// ticks (intro, ambient) can schedule a fresh tick chain. App.Init only
 	// runs once at program start; without this hook a screen with its own

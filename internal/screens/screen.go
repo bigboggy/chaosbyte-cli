@@ -52,6 +52,13 @@ type KeyHint struct {
 	Key, Desc string
 }
 
+// Entrant is an optional interface for screens that want a hook the router
+// runs when they become active. Used for field-driven entry effects: pulse
+// the backdrop, register a welcome overlay, palette shift on navigate.
+type Entrant interface {
+	OnEnter()
+}
+
 // NavigateMsg requests a screen switch. Emitted by Navigate; handled by the
 // app router.
 type NavigateMsg struct{ Target string }
