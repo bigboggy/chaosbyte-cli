@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# install.sh — install gitstatus to $HOME/.local/bin
-# Usage: curl -fsSL https://raw.githubusercontent.com/bchayka/gitstatus/main/install.sh | bash
+# install.sh — install chaosbyte to $HOME/.local/bin
+# Usage: curl -fsSL https://raw.githubusercontent.com/bigboggy/chaosbyte-cli/main/install.sh | bash
 #        bash install.sh --uninstall
 
 set -euo pipefail
@@ -8,7 +8,7 @@ set -euo pipefail
 # ── Config ────────────────────────────────────────────────────────────────────
 REPO="bigboggy/chaosbyte-cli"
 INSTALL_DIR="$HOME/.local/bin"
-BINARY_NAME="gitstatus"
+BINARY_NAME="chaosbyte"
 VERSION="${VERSION:-latest}"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
