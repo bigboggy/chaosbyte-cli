@@ -93,12 +93,10 @@ mkdir -p "$INSTALL_DIR"
 info "Extracting ..."
 tar -xzf "$TMPDIR/$ASSET" -C "$TMPDIR"
 
-# The archive may contain the binary directly or in a subdirectory
-# Also handle renamed binaries like gitstatus-darwin-arm64
+# Find the binary in the archive (may be named gitstatus, gitstatus-darwin-arm64, etc.)
 BINARY_PATH=""
-for f in "$TMPDIR"/$BINARY_NAME "$TMPDIR"/*/$BINARY_NAME "$TMPDIR"/$BINARY_NAME-*; do
-  [[ -f "$f" ]] && BINARY_PATH="$f" && break
-done
+BINARY_PATH="$(find "$TMPDIR" -maxdepth 1 -type f -not -name '*.tar.gz' -not -name '*.zip' \( -name "${BINARY_NAME}" -o -name "${BINARY_NAME}-*" \) | head -1)"
+[[ -z "$BINARY_PATH" ]] && BINARY_PATH="$(find "$TMPDIR" -maxdepth 1 -type f -executable | head -1)"
 
 if [[ -z "$BINARY_PATH" ]]; then
   error "Could not find $BINARY_NAME in the archive"
