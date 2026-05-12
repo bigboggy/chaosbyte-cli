@@ -638,22 +638,39 @@ func blankBorrowedCells(base string, origins map[string]typo.LayoutOrigin, borro
 	return strings.Join(rows, "\n")
 }
 
-// blankCellAt replaces the visible char at the given column with a space,
-// preserving any ANSI styling on either side. Implemented as a simple
-// strip-and-rebuild for correctness over speed.
+// blankCellAt replaces the visible char at the given column with a space
+// while preserving every ANSI escape sequence in the row. The styled
+// envelope around the cell is kept; only the rune is swapped.
 func blankCellAt(row string, col int) string {
-	plain := stripAnsi(row)
-	runes := []rune(plain)
-	if col < 0 || col >= len(runes) {
-		return row
+	var b strings.Builder
+	visibleCol := 0
+	inEsc := false
+	for _, r := range row {
+		if r == '\x1b' {
+			inEsc = true
+			b.WriteRune(r)
+			continue
+		}
+		if inEsc {
+			b.WriteRune(r)
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		if visibleCol == col {
+			b.WriteRune(' ')
+		} else {
+			b.WriteRune(r)
+		}
+		visibleCol++
 	}
-	runes[col] = ' '
-	return string(runes)
+	return b.String()
 }
 
 // overlayRows merges two equal-height multi-line strings, taking the
-// overlay's non-blank cells in preference to base. Both strings are
-// expected to have `height` rows; if not, the shorter one is padded.
+// overlay's non-blank cells in preference to base. Base ANSI styling is
+// preserved everywhere the overlay doesn't write.
 func overlayRows(base, overlay string, height int) string {
 	baseRows := splitToHeight(base, height)
 	overRows := splitToHeight(overlay, height)
@@ -664,8 +681,7 @@ func overlayRows(base, overlay string, height int) string {
 			out[i] = b
 			continue
 		}
-		// Cell-level overlay: for every visible cell in o, place it over b.
-		out[i] = overlayCells(b, o)
+		out[i] = overlayRow(b, o)
 	}
 	return strings.Join(out, "\n")
 }
@@ -683,34 +699,77 @@ func splitToHeight(s string, height int) []string {
 	return rows
 }
 
-// overlayCells takes two rendered rows (ANSI-styled) and produces a row where
-// `over`'s non-space cells replace `base`'s cells at the same visible column.
-// Cheap implementation: split both by visible column, replace cell-by-cell.
-func overlayCells(base, over string) string {
-	// Strip both, walk visible cols, pick `over` where non-space.
-	// For perf this is fine — only runs when transforms are active.
-	baseRunes := []rune(stripAnsi(base))
-	overRunes := []rune(stripAnsi(over))
-	maxLen := len(baseRunes)
-	if len(overRunes) > maxLen {
-		maxLen = len(overRunes)
+// overlayRow ANSI-aware overlay: walks base preserving its escape sequences,
+// and at every visible column where `over` has a non-space char, writes the
+// overlay char styled bold accent (the "in transit" treatment).
+func overlayRow(base, over string) string {
+	overChars := visibleColMap(over)
+	if len(overChars) == 0 {
+		return base
 	}
+	overlayStyle := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
+
 	var b strings.Builder
-	for i := 0; i < maxLen; i++ {
-		switch {
-		case i < len(overRunes) && overRunes[i] != ' ':
-			// Re-style: bold accent for borrowed cells. We're losing the
-			// finer per-cell styles from the overlay's ANSI here — fine for
-			// the demo; the proper fix is to teach the compositor to emit
-			// row-by-row with style preserved.
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render(string(overRunes[i])))
-		case i < len(baseRunes):
-			b.WriteRune(baseRunes[i])
-		default:
-			b.WriteByte(' ')
+	visibleCol := 0
+	inEsc := false
+	for _, r := range base {
+		if r == '\x1b' {
+			inEsc = true
+			b.WriteRune(r)
+			continue
+		}
+		if inEsc {
+			b.WriteRune(r)
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		if ch, ok := overChars[visibleCol]; ok {
+			b.WriteString(overlayStyle.Render(string(ch)))
+		} else {
+			b.WriteRune(r)
+		}
+		visibleCol++
+	}
+	// If overlay extends past base width, append remaining overlay chars
+	// styled — the borrowed cells may have flown past the natural row end.
+	for col, ch := range overChars {
+		if col >= visibleCol {
+			pad := col - visibleCol
+			if pad > 0 {
+				b.WriteString(strings.Repeat(" ", pad))
+			}
+			b.WriteString(overlayStyle.Render(string(ch)))
+			visibleCol = col + 1
 		}
 	}
 	return b.String()
+}
+
+// visibleColMap returns a map of visible-column → rune for non-space chars
+// in an ANSI-styled string. Used to locate overlay cells by column.
+func visibleColMap(s string) map[int]rune {
+	out := map[int]rune{}
+	visibleCol := 0
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		if r != ' ' {
+			out[visibleCol] = r
+		}
+		visibleCol++
+	}
+	return out
 }
 
 // stripAnsi removes ANSI SGR sequences from a string, leaving raw runes.
