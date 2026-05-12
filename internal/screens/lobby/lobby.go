@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/field"
+	"github.com/bchayka/gitstatus/internal/mod"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -45,6 +46,8 @@ type Screen struct {
 
 	welcomeUntil  time.Time
 	welcomeActive bool
+
+	mod *mod.Mod
 }
 
 // New constructs a fresh lobby with seeded channels and a focused input.
@@ -54,6 +57,7 @@ func New() *Screen {
 		chatActive: 0,
 		input:      newInput(),
 		backdrop:   field.NewBackdrop(),
+		mod:        mod.New(),
 	}
 }
 
@@ -114,10 +118,14 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
 		return s, nil
 	case field.TickMsg:
-		s.backdrop.Tick(time.Time(m))
-		if s.welcomeActive && time.Time(m).After(s.welcomeUntil) {
+		t := time.Time(m)
+		s.backdrop.Tick(t)
+		if s.welcomeActive && t.After(s.welcomeUntil) {
 			s.backdrop.SetForegroundLines(nil)
 			s.welcomeActive = false
+		}
+		if line := s.mod.Tick(t); line != "" {
+			s.postMod(line)
 		}
 		return s, field.TickCmd()
 	}
@@ -240,10 +248,27 @@ func (s *Screen) postUser(body string) {
 	if ch == nil {
 		return
 	}
+	now := time.Now()
 	ch.Messages = append(ch.Messages, ui.ChatMessage{
-		Author: MeUser, Body: body, At: time.Now(),
+		Author: MeUser, Body: body, At: now,
 	})
 	s.chatScroll = 0
+	s.mod.NoteChat(now)
+}
+
+// postMod posts a moderator line to the active channel. Visually identical
+// to ChatAction (italic accent2) but with the @mod author convention.
+func (s *Screen) postMod(body string) {
+	ch := s.activeChannel()
+	if ch == nil {
+		return
+	}
+	now := time.Now()
+	ch.Messages = append(ch.Messages, ui.ChatMessage{
+		Author: mod.Nick, Body: body, At: now, Kind: ui.ChatAction,
+	})
+	s.chatScroll = 0
+	s.mod.NoteChat(now)
 }
 
 func (s *Screen) postSystem(body string) {
@@ -272,6 +297,7 @@ func (s *Screen) EnsureJoined() {
 	}
 	s.joinPosted = true
 	s.chatScroll = 0
+	s.postMod(s.mod.Welcome(MeUser))
 }
 
 // OnEnter is the router's field-driven entry hook. We pulse the backdrop hard
