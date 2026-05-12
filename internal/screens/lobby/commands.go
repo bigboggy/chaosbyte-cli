@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/typo"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -38,7 +37,6 @@ var builtins = []command{
 	{"/clear", "clear scrollback"},
 	{"/help", "show all commands"},
 	{"/quit", "exit chaosbyte"},
-	{"/wave", "test: scatter the last message's letters"},
 }
 
 // aliases maps an alternate spelling to its canonical command name. Aliases
@@ -92,8 +90,6 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s.cmdClear()
 	case "/quit":
 		return s, screens.Quit()
-	case "/wave":
-		return s.cmdWave()
 	case "/me":
 		return s.cmdMe(args)
 	case "/join":
@@ -222,35 +218,6 @@ func (s *Screen) cmdTopic(args []string) (*Screen, tea.Cmd) {
 	ch.Topic = body
 	s.postSystem(s.nick + " set topic: " + body)
 	return s, nil
-}
-
-// cmdWave fires a Scatter effect on the actual last chat message's visible
-// body — the cells in scrollback that you can read right now lift, fan out,
-// hold, and return. The Layout is the same one View() built for that message
-// during the most recent render, so the borrowed cells == the cells the
-// user is looking at.
-func (s *Screen) cmdWave() (*Screen, tea.Cmd) {
-	if len(s.lastPlacements) == 0 {
-		s.postSystem("/wave: no messages in view")
-		return s, nil
-	}
-	last := s.lastPlacements[len(s.lastPlacements)-1]
-	if last.Layout == nil || len(last.Layout.Cells) == 0 {
-		s.postSystem("/wave: last message has no body to scatter")
-		return s, nil
-	}
-	cells := make([]typo.CellRef, len(last.Layout.Cells))
-	for i := range last.Layout.Cells {
-		cells[i] = typo.CellRef{LayoutID: last.Layout.ID, Idx: i}
-	}
-	s.choreographer.Schedule(&typo.Effect{
-		Kind:     "scatter",
-		Path:     typo.Scatter(6),
-		Duration: 1500 * time.Millisecond,
-		Seed:     time.Now().UnixNano(),
-		Cells:    cells,
-	})
-	return s, screens.Flash("wave fired on last message")
 }
 
 func truncate(s string, n int) string {

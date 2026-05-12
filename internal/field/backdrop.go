@@ -8,6 +8,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Note: the value-noise grid renderer is retired. Backdrop.Render now
+// returns all-spaces so the field-as-backdrop pattern across screens
+// produces a transparent overlay. Foreground cascades on the legacy field
+// engine no longer render — screens that need cascades will be migrated
+// to the typo package (tasks #36-#39).
+
 // Backdrop is a per-screen wrapper around an Engine. It exposes a tight
 // surface so any Screen can embed one, pump it on a tick, and composite
 // its existing rendered content over the field.
@@ -70,11 +76,23 @@ func (b *Backdrop) Tier() int { return b.engine.Tier() }
 // SetCursor records cursor cell coords from MouseMsg.
 func (b *Backdrop) SetCursor(x, y float64) { b.engine.SetCursor(x, y) }
 
-// Render returns the field rendered to (width, height) as a multi-line
-// string. Call from Screen.View; pair with Composite to overlay content.
+// Render returns an empty backdrop. The grid renderer is retired — the
+// engine is being phased out in favor of the typo pipeline, where motion
+// lives in actual UI content (chat lines, game elements, spotlight title)
+// rather than a separate animated layer behind everything. Screens that
+// still call this get all-space rows so the existing composite path is a
+// no-op overlay. Individual screens migrate to typo per task #36-#39.
 func (b *Backdrop) Render(width, height int) string {
-	b.engine.Resize(width, height)
-	return b.engine.Render()
+	_ = b.engine // engine still ticks for any code that reads its state directly
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	row := strings.Repeat(" ", width)
+	out := make([]string, height)
+	for i := range out {
+		out[i] = row
+	}
+	return strings.Join(out, "\n")
 }
 
 // SetForegroundLines hands a list of foreground text overlays to the engine.
