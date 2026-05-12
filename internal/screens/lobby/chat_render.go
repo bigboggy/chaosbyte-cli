@@ -32,11 +32,13 @@ func renderChatLineAnim(msg ui.ChatMessage, width int, now time.Time) []string {
 
 	state := typo.NewState()
 	elapsed := now.Sub(msg.At)
-	if elapsed >= 0 && elapsed < arrivalWindow {
-		macro := macroForKind(msg.Kind)
+	macro := macroForKind(msg.Kind)
+	if macro != nil && elapsed >= 0 && elapsed < arrivalWindow {
 		macro(&state, layout, elapsed, now)
 	} else {
-		// Outside arrival window: fully revealed, no animation.
+		// Default: fully revealed, no animation. Normal chat just appears —
+		// animation is reserved for rare meaningful moments (joins, mod
+		// alerts, @mentions). The quiet baseline is the whole point.
 		state.Reveal = 1.0
 	}
 
@@ -94,21 +96,22 @@ func bodyForKind(msg ui.ChatMessage) string {
 	return msg.Body
 }
 
-// macroForKind picks the entry animation for each chat kind. Future per-user
-// UserStyle overrides this (#42).
+// macroForKind picks the entry animation for each chat kind. Animation is
+// reserved for moments that genuinely matter:
+//   - Joins: a person arriving is an ARRIVAL (rare, meaningful)
+//   - Mod posts / /me actions: explicit expressive moments
+//   - Normal chat / system: appear instantly, no animation
+//
+// The room is quiet by default. Adding animation to every chat line just
+// recreates the "ambient noise" problem in the foreground.
 func macroForKind(kind ui.ChatKind) typo.Macro {
 	switch kind {
-	case ui.ChatAction:
-		// /me actions and mod posts: scramble briefly before settling.
-		return typo.Settle()
 	case ui.ChatJoin:
-		// Joins arrive with a soft Type — slower than chat.
 		return typoTypeAt(60)
-	case ui.ChatSystem:
-		return typoTypeAt(15) // system lines feel fast/programmatic
-	default:
-		return typo.Greet()
+	case ui.ChatAction:
+		return typo.Settle()
 	}
+	return nil
 }
 
 // typoTypeAt wraps typo.Type with a custom per-char speed.
