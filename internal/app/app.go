@@ -59,7 +59,7 @@ func New(nick string, broker *room.Broker) *App {
 			screens.NewsID:        news.New(),
 			screens.ResourcesID:   resources.New(),
 			screens.SpotlightID:   spotlight.New(),
-			screens.GamesID:       games.New(),
+			screens.GamesID:       games.New(broker),
 			screens.DiscussionsID: discussions.New(),
 			screens.AmbientID:     ambient.New(),
 		},

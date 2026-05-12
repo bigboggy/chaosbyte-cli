@@ -24,20 +24,30 @@ type Event struct {
 }
 
 // Broker is the shared room state. It's safe for concurrent use; subscribers
-// each get their own buffered channel.
+// each get their own buffered channel and receive events for every channel
+// the broker hosts.
 type Broker struct {
 	mu       sync.Mutex
 	messages map[string][]ui.ChatMessage
-	subs     map[string][]chan Event
+	subs     []chan Event
 	mod      *mod.Mod
 	stop     chan struct{}
+
+	// publish timestamps within the last activityWindow seconds. Drives
+	// Tier() so every screen can read the room's energy level without
+	// computing its own.
+	pubTimes []time.Time
 }
 
-// New starts a broker with #lobby pre-seeded and a mod goroutine running.
+// activityWindow is the lookback the tier classifier uses on publish times.
+const activityWindow = 10 * time.Second
+
+// New starts a broker with every seeded channel ready and a mod goroutine
+// running. Today the seeds live in room.seedMessages; future builds will
+// pull from persistent storage.
 func New() *Broker {
 	b := &Broker{
 		messages: map[string][]ui.ChatMessage{},
-		subs:     map[string][]chan Event{},
 		mod:      mod.New(),
 		stop:     make(chan struct{}),
 	}
@@ -46,6 +56,18 @@ func New() *Broker {
 	}
 	go b.runMod()
 	return b
+}
+
+// Channels returns the list of seeded channel names. Stable across the
+// broker's lifetime (no dynamic create yet).
+func (b *Broker) Channels() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]string, 0, len(b.messages))
+	for name := range b.messages {
+		out = append(out, name)
+	}
+	return out
 }
 
 // Stop terminates the broker's mod goroutine. Subscribers stay open; this
@@ -88,14 +110,14 @@ func (b *Broker) Snapshot(channel string) []ui.ChatMessage {
 	return out
 }
 
-// Subscribe returns a channel that receives every future Event for the
-// named room channel. Send is non-blocking; if the subscriber is slow the
-// event is dropped.
-func (b *Broker) Subscribe(channel string) <-chan Event {
+// Subscribe returns a channel that receives every future Event the broker
+// publishes, regardless of channel. The subscriber inspects evt.Channel to
+// route. Send is non-blocking; if the subscriber is slow the event drops.
+func (b *Broker) Subscribe() <-chan Event {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	sub := make(chan Event, 32)
-	b.subs[channel] = append(b.subs[channel], sub)
+	sub := make(chan Event, 64)
+	b.subs = append(b.subs, sub)
 	return sub
 }
 
@@ -118,7 +140,9 @@ func (b *Broker) publish(channel string, msg ui.ChatMessage) {
 	b.mu.Lock()
 	b.messages[channel] = append(b.messages[channel], msg)
 	b.mod.NoteChat(msg.At)
-	subs := append([]chan Event(nil), b.subs[channel]...)
+	b.pubTimes = append(b.pubTimes, msg.At)
+	b.trimPubTimes(msg.At)
+	subs := append([]chan Event(nil), b.subs...)
 	b.mu.Unlock()
 	for _, s := range subs {
 		select {
@@ -126,4 +150,41 @@ func (b *Broker) publish(channel string, msg ui.ChatMessage) {
 		default:
 		}
 	}
+}
+
+// trimPubTimes drops timestamps older than activityWindow. Caller holds mu.
+func (b *Broker) trimPubTimes(now time.Time) {
+	cutoff := now.Add(-activityWindow)
+	keep := b.pubTimes[:0]
+	for _, t := range b.pubTimes {
+		if t.After(cutoff) {
+			keep = append(keep, t)
+		}
+	}
+	b.pubTimes = keep
+}
+
+// Tier returns the room's current intensity tier derived from publish
+// frequency in the last activityWindow seconds. Screens read this each
+// tick to keep the field's energy aligned with the room:
+//   - 0 quiet: no activity in window
+//   - 1 reactive: 1-2 events
+//   - 2 eventful: 3-5 events
+//   - 3 hype: 6+ events
+//
+// Tier 4 (game takeover) is screen-local, not room-wide.
+func (b *Broker) Tier() int {
+	b.mu.Lock()
+	b.trimPubTimes(time.Now())
+	n := len(b.pubTimes)
+	b.mu.Unlock()
+	switch {
+	case n >= 6:
+		return 3
+	case n >= 3:
+		return 2
+	case n >= 1:
+		return 1
+	}
+	return 0
 }

@@ -67,7 +67,9 @@ type Screen struct {
 
 // New constructs a fresh lobby with seeded channels and a focused input.
 // nick is the user's chat handle; broker is the shared room state and may
-// be nil for fully-local mode.
+// be nil for fully-local mode. When broker is attached every channel's
+// scrollback comes from broker.Snapshot and a single subscription delivers
+// events for all channels.
 func New(nick string, broker *room.Broker) *Screen {
 	if nick == "" {
 		nick = "@boggy"
@@ -88,9 +90,13 @@ func New(nick string, broker *room.Broker) *Screen {
 			break
 		}
 	}
-	if broker != nil && s.lobbyIdx >= 0 {
-		s.channels[s.lobbyIdx].Messages = broker.Snapshot("#lobby")
-		s.roomSub = broker.Subscribe("#lobby")
+	if broker != nil {
+		for i, ch := range s.channels {
+			if msgs := broker.Snapshot(ch.Name); len(msgs) > 0 {
+				s.channels[i].Messages = msgs
+			}
+		}
+		s.roomSub = broker.Subscribe()
 	}
 	return s
 }
@@ -318,8 +324,8 @@ func (s *Screen) postUser(body string) {
 	}
 	now := time.Now()
 	msg := ui.ChatMessage{Author: s.nick, Body: body, At: now}
-	if s.broker != nil && ch.Name == "#lobby" {
-		s.broker.Publish("#lobby", msg)
+	if s.broker != nil {
+		s.broker.Publish(ch.Name, msg)
 		return
 	}
 	ch.Messages = append(ch.Messages, msg)
@@ -327,10 +333,15 @@ func (s *Screen) postUser(body string) {
 	s.mod.NoteChat(now)
 }
 
-// updateTier maps room state onto the field's five intensity tiers. A recent
-// chat arrival puts the lobby at tier 3 (hype) for five seconds; long
-// silences (30s+) drop to tier 0 (quiet); everything in between is tier 1.
+// updateTier maps room state onto the field's five intensity tiers. With a
+// broker attached we defer to broker.Tier() so every screen sees the same
+// energy level the mod sees; locally we fall back to a smaller idle/burst
+// heuristic.
 func (s *Screen) updateTier(t time.Time) {
+	if s.broker != nil {
+		s.backdrop.SetTier(s.broker.Tier())
+		return
+	}
 	switch {
 	case t.Before(s.hypeUntil):
 		s.backdrop.SetTier(3)
@@ -386,7 +397,8 @@ func (s *Screen) postSystem(body string) {
 
 // EnsureJoined posts the "entered the chat" join message once, then no-ops on
 // subsequent calls. Called by the router when transitioning from intro. When
-// a broker is attached the join broadcasts so other sessions see the new nick.
+// a broker is attached the join broadcasts so other sessions see the new
+// nick and the broker's mod auto-welcomes the room.
 func (s *Screen) EnsureJoined() {
 	if s.joinPosted {
 		return

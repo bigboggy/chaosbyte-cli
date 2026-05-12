@@ -81,11 +81,11 @@ func (s *Screen) Footer() []screens.KeyHint {
 	}
 	if s.engine.IsOptIn() {
 		return []screens.KeyHint{
-			{Key: "enter", Desc: "dive in"}, {Key: "n", Desc: "skip"}, {Key: "i", Desc: "chat"}, {Key: "esc", Desc: "lobby"},
+			{Key: "enter", Desc: "go now"}, {Key: "n", Desc: "skip"}, {Key: "i", Desc: "post"}, {Key: "esc", Desc: "lobby"},
 		}
 	}
 	return []screens.KeyHint{
-		{Key: "i", Desc: "chat"}, {Key: "j/k", Desc: "scroll"}, {Key: "n", Desc: "next"}, {Key: "o", Desc: "open repo"}, {Key: "esc", Desc: "lobby"},
+		{Key: "o", Desc: "open repo"}, {Key: "n", Desc: "next"}, {Key: "i", Desc: "post"}, {Key: "j/k", Desc: "scroll"}, {Key: "esc", Desc: "lobby"},
 	}
 }
 
@@ -254,10 +254,10 @@ func (s *Screen) View(width, height int) string {
 		input = s.input.View()
 	} else if s.engine.IsOptIn() {
 		input = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
-			Render("press enter to dive in · n to skip · i to chat")
+			Render("enter — start this spotlight now · n — skip to next · i — post in this thread")
 	} else {
 		input = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
-			Render("press i to join the discussion · j/k scroll · o open repo · n next")
+			Render("o — open repo · n — next spotlight · i — post · j/k — scroll")
 	}
 
 	parts := []string{

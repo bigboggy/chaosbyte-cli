@@ -9,6 +9,7 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/bricks"
 	"github.com/bchayka/gitstatus/internal/field"
+	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -30,12 +31,18 @@ type Screen struct {
 	blitz *bricks.BricksBlitz
 
 	backdrop *field.Backdrop
+	broker   *room.Broker
 }
 
-func New() *Screen {
+// New constructs the games launcher. broker, when non-nil, is the source of
+// seed lines for bricks blitz so the falling bars are real chat from
+// #lobby; pass nil for fully-local mode and the blitz falls back to its
+// built-in defaults.
+func New(broker *room.Broker) *Screen {
 	return &Screen{
 		games:    seedGames(),
 		backdrop: field.NewBackdrop(),
+		broker:   broker,
 	}
 }
 
@@ -120,7 +127,7 @@ func (s *Screen) updateBlitz(msg tea.Msg) (screens.Screen, tea.Cmd) {
 			s.blitz = nil
 			return s, screens.Navigate(screens.LobbyID)
 		case "r":
-			s.blitz = bricks.NewBricksBlitz(0, 0, nil)
+			s.blitz = bricks.NewBricksBlitz(0, 0, s.blitzSeeds())
 			return s, s.blitz.Init()
 		}
 	}
@@ -159,11 +166,40 @@ func (s *Screen) updateList(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
 		switch g.Name {
 		case "bricks blitz":
 			s.state = statePlayBricks
-			s.blitz = bricks.NewBricksBlitz(0, 0, nil)
+			s.blitz = bricks.NewBricksBlitz(0, 0, s.blitzSeeds())
 			return s, s.blitz.Init()
 		}
 	}
 	return s, nil
+}
+
+// blitzSeeds pulls the most recent chat lines from #lobby so the falling
+// bars in bricks blitz are real conversation, not the built-in defaults.
+// Filters to user lines (skip system, mod, joins) and lets the bricks state
+// re-trim each to the 5..12 char range it expects.
+func (s *Screen) blitzSeeds() []string {
+	if s.broker == nil {
+		return nil
+	}
+	msgs := s.broker.Snapshot("#lobby")
+	out := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Kind != ui.ChatNormal && m.Kind != ui.ChatAction {
+			continue
+		}
+		body := strings.TrimSpace(m.Body)
+		if body == "" {
+			continue
+		}
+		out = append(out, body)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	if len(out) > 32 {
+		out = out[len(out)-32:]
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
