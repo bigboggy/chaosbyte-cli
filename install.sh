@@ -94,8 +94,9 @@ info "Extracting ..."
 tar -xzf "$TMPDIR/$ASSET" -C "$TMPDIR"
 
 # The archive may contain the binary directly or in a subdirectory
+# Also handle renamed binaries like gitstatus-darwin-arm64
 BINARY_PATH=""
-for f in "$TMPDIR"/$BINARY_NAME "$TMPDIR"/*/$(echo $BINARY_NAME | sed 's/$/.exe/'); do
+for f in "$TMPDIR"/$BINARY_NAME "$TMPDIR"/*/$BINARY_NAME "$TMPDIR"/$BINARY_NAME-*; do
   [[ -f "$f" ]] && BINARY_PATH="$f" && break
 done
 
