@@ -14,12 +14,21 @@ import (
 // keeps animating. After this, the message renders fully revealed.
 const arrivalWindow = 3 * time.Second
 
-// renderChatLineAnim is the typo-based replacement for ui.RenderChatLine.
-// Builds the static prefix (timestamp + nick) once, types the body in via
-// the typo Greet macro for messages still inside the arrival window.
-//
-// Returns one or more rendered rows; the caller stacks them in scrollback.
+// renderChatLineAnim returns just the rendered rows. Convenience wrapper
+// over renderChatLineAnimDetailed for callers that don't need positional
+// metadata.
 func renderChatLineAnim(msg ui.ChatMessage, width int, now time.Time) []string {
+	rows, _, _ := renderChatLineAnimDetailed(msg, width, now)
+	return rows
+}
+
+// renderChatLineAnimDetailed returns the rendered rows plus the body text
+// and the prefix's rendered width. The caller uses the body + prefix-width
+// to build a typo.Layout for the body so the choreographer can fire effects
+// against real chat content. This is the typo-based replacement for
+// ui.RenderChatLine — builds the static prefix once, types the body in via
+// the typo Greet macro for messages still inside the arrival window.
+func renderChatLineAnimDetailed(msg ui.ChatMessage, width int, now time.Time) ([]string, string, int) {
 	prefix, prefixWidth, bodyStyle := chatPrefix(msg)
 	bodyText := bodyForKind(msg)
 	bodyWidth := width - prefixWidth - 1
@@ -44,7 +53,7 @@ func renderChatLineAnim(msg ui.ChatMessage, width int, now time.Time) []string {
 
 	bodyRows := typo.Render(layout, &state, now)
 	if len(bodyRows) == 0 {
-		return []string{prefix}
+		return []string{prefix}, bodyText, prefixWidth
 	}
 
 	pad := strings.Repeat(" ", prefixWidth+1)
@@ -56,7 +65,7 @@ func renderChatLineAnim(msg ui.ChatMessage, width int, now time.Time) []string {
 			out[i] = pad + row
 		}
 	}
-	return out
+	return out, bodyText, prefixWidth
 }
 
 // chatPrefix returns the styled "12:34 <nick>" prefix plus its rendered

@@ -224,40 +224,33 @@ func (s *Screen) cmdTopic(args []string) (*Screen, tea.Cmd) {
 	return s, nil
 }
 
-// cmdWave is a test command that fires a Scatter effect on the most recent
-// chat message's body. Used to eyeball-verify the choreographer +
-// compositor render path before wiring real triggers (reactions, awards,
-// mod summons). Will be removed once the real triggers exist.
+// cmdWave fires a Scatter effect on the actual last chat message's visible
+// body — the cells in scrollback that you can read right now lift, fan out,
+// hold, and return. The Layout is the same one View() built for that message
+// during the most recent render, so the borrowed cells == the cells the
+// user is looking at.
 func (s *Screen) cmdWave() (*Screen, tea.Cmd) {
-	ch := s.activeChannel()
-	if ch == nil || len(ch.Messages) == 0 {
-		s.postSystem("/wave: no messages to scatter")
+	if len(s.lastPlacements) == 0 {
+		s.postSystem("/wave: no messages in view")
 		return s, nil
 	}
-	last := ch.Messages[len(ch.Messages)-1]
-	body := strings.TrimSpace(last.Body)
-	if body == "" {
-		s.postSystem("/wave: last message has no body")
+	last := s.lastPlacements[len(s.lastPlacements)-1]
+	if last.Layout == nil || len(last.Layout.Cells) == 0 {
+		s.postSystem("/wave: last message has no body to scatter")
 		return s, nil
 	}
-	if len(body) > 32 {
-		body = body[:32]
-	}
-	layoutID := "wave-" + time.Now().Format("150405")
-	layout := typo.Prepare(layoutID, body, 80)
-	s.demoLayouts[layoutID] = layout
-	cells := make([]typo.CellRef, len(layout.Cells))
-	for i := range layout.Cells {
-		cells[i] = typo.CellRef{LayoutID: layoutID, Idx: i}
+	cells := make([]typo.CellRef, len(last.Layout.Cells))
+	for i := range last.Layout.Cells {
+		cells[i] = typo.CellRef{LayoutID: last.Layout.ID, Idx: i}
 	}
 	s.choreographer.Schedule(&typo.Effect{
 		Kind:     "scatter",
-		Path:     typo.Scatter(5),
+		Path:     typo.Scatter(6),
 		Duration: 1500 * time.Millisecond,
 		Seed:     time.Now().UnixNano(),
 		Cells:    cells,
 	})
-	return s, screens.Flash("wave fired")
+	return s, screens.Flash("wave fired on last message")
 }
 
 func truncate(s string, n int) string {

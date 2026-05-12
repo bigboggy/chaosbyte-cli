@@ -66,8 +66,18 @@ type Screen struct {
 	// gathers). Lobby renders any active CellTransforms over the chat
 	// scrollback area each frame.
 	choreographer    *typo.Choreographer
-	demoLayouts      map[string]*typo.Layout // keyed by Layout.ID; sources for active transforms
-	activeTransforms []typo.CellTransform    // updated each Tick; consumed in View
+	activeTransforms []typo.CellTransform // updated each Tick; consumed in View
+	lastPlacements   []msgPlacement       // chat message body Layouts + positions from last View
+}
+
+// msgPlacement records where one chat message's body lives in the rendered
+// scrollback. /wave + future event handlers use this to schedule transforms
+// on real chat cells.
+type msgPlacement struct {
+	Layout       *typo.Layout
+	Body         string
+	PrefixWidth  int
+	FlatRowStart int
 }
 
 // New constructs a fresh lobby with seeded channels and a focused input.
@@ -89,7 +99,6 @@ func New(nick string, broker *room.Broker) *Screen {
 		broker:        broker,
 		lobbyIdx:      -1,
 		choreographer: typo.NewChoreographer(),
-		demoLayouts:   map[string]*typo.Layout{},
 	}
 	for i, ch := range s.channels {
 		if ch.Name == "#lobby" {
@@ -492,19 +501,38 @@ func (s *Screen) View(width, height int) string {
 	}
 
 	now := time.Now()
-	var lines []string
-	for _, msg := range ch.Messages {
-		lines = append(lines, renderChatLineAnim(msg, contentW, now)...)
-	}
-	chatRows := scrollbackRows(lines, chatH, s.chatScroll)
-	fieldRows := strings.Split(s.backdrop.Render(contentW, chatH), "\n")
-	visible := field.Composite(chatRows, fieldRows, chatH)
 
-	// Render any active CellTransforms on top of the chat area. The demo
-	// /wave command schedules a Scatter on a Layout in s.demoLayouts;
-	// transforms move those cells across the chat region for ~1.5s.
+	// Build chat rows. Track each message's body Layout and where in the
+	// flat row stream its body lands, so the choreographer can target real
+	// chat cells (not phantom demo layouts) when an effect fires.
+	var lines []string
+	placements := make([]msgPlacement, 0, len(ch.Messages))
+	for _, msg := range ch.Messages {
+		rendered, body, prefixW := renderChatLineAnimDetailed(msg, contentW, now)
+		flatStart := len(lines)
+		lines = append(lines, rendered...)
+		layoutID := msgKey(msg)
+		layout := typo.Prepare(layoutID, body, contentW-prefixW-1)
+		placements = append(placements, msgPlacement{
+			Layout:       layout,
+			Body:         body,
+			PrefixWidth:  prefixW,
+			FlatRowStart: flatStart,
+		})
+	}
+	s.lastPlacements = placements
+	chatRows := scrollbackRows(lines, chatH, s.chatScroll)
+
+	// Field engine grid is no longer rendered behind chat — the substrate
+	// is the chat itself, animated via the choreographer. Empty rows stay
+	// empty; transforms render directly on top of the chat string.
+	visible := strings.Join(chatRows, "\n")
+
+	// Render active CellTransforms on top of the chat — borrowed cells
+	// move across the chat area; the original positions are blanked so
+	// you see the actual chat text travelling, not a phantom duplicate.
 	if len(s.activeTransforms) > 0 {
-		visible = s.composeTransformOverlay(visible, contentW, chatH, now)
+		visible = s.composeTransformOverlay(visible, contentW, chatH, now, placements)
 	}
 
 	parts := []string{
@@ -534,27 +562,93 @@ func topBar(ch Channel, width int) string {
 	return left
 }
 
-// composeTransformOverlay renders active CellTransforms as an overlay on
-// top of the existing chat scrollback. Demo Layouts in s.demoLayouts are
-// the source of borrowed cells; their natural origin is set to mid-chat
-// for now. Real chat-message Layouts will be wired in once chat scrollback
-// uses the Compositor directly.
-func (s *Screen) composeTransformOverlay(base string, width, height int, now time.Time) string {
-	comp := typo.NewCompositor(width, height)
-	origins := map[string]typo.LayoutOrigin{}
-	for id, layout := range s.demoLayouts {
-		// Center horizontally, place ~2/3 down the chat area so a Scatter
-		// has room above and below to fan into.
-		x := (width - layout.Width) / 2
-		if x < 0 {
-			x = 0
-		}
-		y := height * 2 / 3
-		origins[id] = typo.LayoutOrigin{Layout: layout, X: x, Y: y}
+// composeTransformOverlay renders active CellTransforms over the chat
+// scrollback. Origins are derived from the placements collected during
+// chat-row construction so the borrowed cells move FROM their real
+// chat-screen position OUTWARD, and back. The original cell positions
+// are blanked in the base string so the user sees one set of moving
+// chars, not a ghost duplicate.
+func (s *Screen) composeTransformOverlay(base string, width, height int, now time.Time, placements []msgPlacement) string {
+	// Resolve each Layout ID to its on-screen origin in chat-area coords.
+	totalRows := 0
+	for _, p := range placements {
+		// Placement's body row count is the rendered rows minus 0 (prefix
+		// is on row 0; we'll align the body to the same first row).
+		totalRows += p.Layout.Height
 	}
+	// Top padding when chat is shorter than the area (bottom-aligned).
+	topPad := 0
+	if flat := totalFlatRows(placements); flat < height {
+		topPad = height - flat
+	}
+
+	origins := map[string]typo.LayoutOrigin{}
+	for _, p := range placements {
+		y := topPad + p.FlatRowStart
+		x := p.PrefixWidth + 1
+		origins[p.Layout.ID] = typo.LayoutOrigin{Layout: p.Layout, X: x, Y: y}
+	}
+
+	// Build the overlay grid.
+	comp := typo.NewCompositor(width, height)
 	comp.DrawTransforms(s.activeTransforms, origins, now)
 	overlay := comp.Render()
+
+	// Blank the natural cell positions for any cell currently in transform
+	// so the chat text appears to physically leave its spot.
+	borrowedByLayout := typo.IndexTransforms(s.activeTransforms)
+	base = blankBorrowedCells(base, origins, borrowedByLayout, height)
+
 	return overlayRows(base, overlay, height)
+}
+
+// totalFlatRows sums the rendered heights of all placements (each Layout
+// reports its own wrapped row count via Height).
+func totalFlatRows(placements []msgPlacement) int {
+	total := 0
+	for _, p := range placements {
+		total += p.Layout.Height
+	}
+	return total
+}
+
+// blankBorrowedCells walks each transformed cell, computes its natural
+// (col, row) in the base chat string, and replaces that visible cell with
+// a space. The transformed copy renders elsewhere via the overlay.
+func blankBorrowedCells(base string, origins map[string]typo.LayoutOrigin, borrowed map[string]map[int]bool, height int) string {
+	rows := splitToHeight(base, height)
+	for layoutID, idxSet := range borrowed {
+		origin, ok := origins[layoutID]
+		if !ok {
+			continue
+		}
+		for idx := range idxSet {
+			if idx < 0 || idx >= len(origin.Layout.Cells) {
+				continue
+			}
+			cell := origin.Layout.Cells[idx]
+			col := origin.X + cell.Col
+			row := origin.Y + cell.Row
+			if row < 0 || row >= len(rows) {
+				continue
+			}
+			rows[row] = blankCellAt(rows[row], col)
+		}
+	}
+	return strings.Join(rows, "\n")
+}
+
+// blankCellAt replaces the visible char at the given column with a space,
+// preserving any ANSI styling on either side. Implemented as a simple
+// strip-and-rebuild for correctness over speed.
+func blankCellAt(row string, col int) string {
+	plain := stripAnsi(row)
+	runes := []rune(plain)
+	if col < 0 || col >= len(runes) {
+		return row
+	}
+	runes[col] = ' '
+	return string(runes)
 }
 
 // overlayRows merges two equal-height multi-line strings, taking the
