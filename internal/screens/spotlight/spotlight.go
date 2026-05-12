@@ -94,7 +94,7 @@ func (s *Screen) updateNormal(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
 	case "o", "enter":
 		idx, _ := s.rotation()
 		if idx < len(s.items) {
-			return s, screens.Flash("opening: " + s.items[idx].RepoURL)
+			return s, screens.OpenURL(s.items[idx].RepoURL)
 		}
 	}
 	return s, nil

@@ -62,7 +62,7 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		s.idx = len(s.items) - 1
 	case "enter", "o":
 		if s.idx < len(s.items) {
-			return s, screens.Flash("opening: " + s.items[s.idx].URL)
+			return s, screens.OpenURL(s.items[s.idx].URL)
 		}
 	case "y":
 		if s.idx < len(s.items) {

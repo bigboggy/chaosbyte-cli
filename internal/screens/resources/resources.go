@@ -147,23 +147,30 @@ func (s *Screen) open() tea.Cmd {
 	switch s.tab {
 	case tabTrending:
 		if s.idx < len(s.trending) {
-			return screens.Flash("skills.sh/" + s.trending[s.idx].Name)
+			return screens.OpenURL(skillURL(s.trending[s.idx].Name))
 		}
 	case tabTop:
 		if s.idx < len(s.top) {
-			return screens.Flash("skills.sh/" + s.top[s.idx].Name)
+			return screens.OpenURL(skillURL(s.top[s.idx].Name))
 		}
 	case tabRepos:
 		if s.idx < len(s.repos) {
-			return screens.Flash("opening: " + s.repos[s.idx].URL)
+			return screens.OpenURL(s.repos[s.idx].URL)
 		}
 	case tabSearch:
 		results := s.searchResults()
 		if s.idx < len(results) {
-			return screens.Flash("skills.sh/" + results[s.idx].Name)
+			return screens.OpenURL(skillURL(results[s.idx].Name))
 		}
 	}
 	return nil
+}
+
+// skillURL builds the skills.sh deep link for a skill name. The site itself
+// may 404 on these (most are fictional), but that's a data problem, not a
+// routing problem.
+func skillURL(name string) string {
+	return "https://skills.sh/" + name
 }
 
 // ---------------------------------------------------------------------------
