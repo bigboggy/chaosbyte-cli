@@ -290,6 +290,16 @@ func (e *Engine) SetCursor(x, y float64) {
 	e.cursorY = y
 }
 
+// Pulse bumps the motion accumulator directly. Use this from non-mouse
+// activity (keystrokes, message arrivals) to drive palette drift even when
+// the cursor isn't moving. amount is added to ot; typical values 0.05-0.2.
+func (e *Engine) Pulse(amount float64) {
+	e.ot += amount
+	if e.ot > 1 {
+		e.ot = 1
+	}
+}
+
 // SetSourceWord replaces the 3-char source bitmap. Pass uppercase letters
 // or digits; anything else renders blank.
 func (e *Engine) SetSourceWord(word string) {

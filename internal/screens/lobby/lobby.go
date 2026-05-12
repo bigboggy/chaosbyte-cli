@@ -11,9 +11,11 @@ package lobby
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -21,6 +23,16 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// TickMsg fires at ~60fps while the lobby is active. Drives the backdrop
+// field engine.
+type TickMsg time.Time
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg {
+		return TickMsg(t)
+	})
+}
 
 // Screen is the lobby's own state. The chat input is always focused, so this
 // screen reports InputFocused()==true and the app's global key handlers stay
@@ -36,6 +48,11 @@ type Screen struct {
 	paletteIdx int // selection inside the command palette popup
 
 	joinPosted bool
+
+	// engine drives the field backdrop behind the chat scrollback. Each
+	// keystroke pulses its motion accumulator so typing produces palette
+	// drift the same way mouse motion does on the ertdfgcvb site.
+	engine *field.Engine
 }
 
 // New constructs a fresh lobby with seeded channels and a focused input.
@@ -44,6 +61,7 @@ func New() *Screen {
 		channels:   seedChannels(),
 		chatActive: 0,
 		input:      newInput(),
+		engine:     field.NewEngine(),
 	}
 }
 
@@ -56,7 +74,7 @@ func newInput() textinput.Model {
 	return ti
 }
 
-func (s *Screen) Init() tea.Cmd { return textinput.Blink }
+func (s *Screen) Init() tea.Cmd { return tea.Batch(textinput.Blink, tickCmd()) }
 
 func (s *Screen) Name() string  { return screens.LobbyID }
 func (s *Screen) Title() string { return "lobby" }
@@ -96,9 +114,19 @@ func (s *Screen) InputFocused() bool { return true }
 // ---------------------------------------------------------------------------
 
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
-	switch msg := msg.(type) {
+	switch m := msg.(type) {
 	case tea.KeyMsg:
-		return s.handleKey(msg)
+		// Every keystroke is a small pulse of activity that drives the
+		// engine's motion accumulator. Without this, the field would sit
+		// gray during chat because the mouse isn't moving.
+		s.engine.Pulse(0.04)
+		return s.handleKey(m)
+	case tea.MouseMsg:
+		s.engine.SetCursor(float64(m.X), float64(m.Y))
+		return s, nil
+	case TickMsg:
+		s.engine.Tick(time.Time(m))
+		return s, tickCmd()
 	}
 	return s, nil
 }
@@ -289,7 +317,15 @@ func (s *Screen) View(width, height int) string {
 	for _, msg := range ch.Messages {
 		lines = append(lines, ui.RenderChatLine(msg, contentW)...)
 	}
-	visible := windowScrollback(lines, chatH, s.chatScroll)
+	chatRows := scrollbackRows(lines, chatH, s.chatScroll)
+
+	// Render the field engine at the scrollback's exact size, then composite
+	// the chat over it row-by-row. Empty rows (no chat there yet) show the
+	// field; rows with chat content win out.
+	s.engine.Resize(contentW, chatH)
+	fieldRender := s.engine.Render()
+	fieldRows := strings.Split(fieldRender, "\n")
+	visible := compositeChatOverField(chatRows, fieldRows, chatH)
 
 	parts := []string{
 		bar,
@@ -318,9 +354,10 @@ func topBar(ch Channel, width int) string {
 	return left
 }
 
-// windowScrollback clamps the scroll offset and returns the visible slice
-// padded to exactly height rows so the input below it stays anchored.
-func windowScrollback(lines []string, height, scroll int) string {
+// scrollbackRows clamps the scroll offset and returns the visible slice as a
+// height-length string slice. Empty positions are empty strings so the
+// compositor can show the field behind them.
+func scrollbackRows(lines []string, height, scroll int) []string {
 	maxScroll := len(lines) - height
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -339,9 +376,45 @@ func windowScrollback(lines []string, height, scroll int) string {
 	if end > len(lines) {
 		end = len(lines)
 	}
-	var visible string
-	if start < end {
-		visible = strings.Join(lines[start:end], "\n")
+	visible := lines[start:end]
+	// Bottom-align: pad the TOP with empty rows so chat hugs the bottom of
+	// the scrollback area. Those empty rows are where the field shows.
+	if len(visible) < height {
+		pad := make([]string, height-len(visible))
+		visible = append(pad, visible...)
 	}
-	return ui.PadToHeight(visible, height)
+	return visible
+}
+
+// ansiRegex strips ANSI SGR sequences for the emptiness check. Matching a
+// row as "empty" means "no visible chars" — pure whitespace or only escape
+// codes.
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func rowIsEmpty(row string) bool {
+	stripped := ansiRegex.ReplaceAllString(row, "")
+	return strings.TrimSpace(stripped) == ""
+}
+
+// compositeChatOverField returns a single string of `height` rows where each
+// row is either the chat row (if it has visible content) or the field row.
+// Per-row composition: simpler than per-cell and good enough for v1 because
+// chat lines are typically content-filled or fully empty, not partial.
+func compositeChatOverField(chatRows, fieldRows []string, height int) string {
+	out := make([]string, height)
+	for i := 0; i < height; i++ {
+		var chat, fld string
+		if i < len(chatRows) {
+			chat = chatRows[i]
+		}
+		if i < len(fieldRows) {
+			fld = fieldRows[i]
+		}
+		if rowIsEmpty(chat) {
+			out[i] = fld
+		} else {
+			out[i] = chat
+		}
+	}
+	return strings.Join(out, "\n")
 }
