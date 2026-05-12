@@ -14,6 +14,7 @@ package app
 import (
 	"time"
 
+	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/screens/ambient"
 	"github.com/bchayka/gitstatus/internal/screens/discussions"
@@ -45,13 +46,16 @@ type App struct {
 	flashAt time.Time
 }
 
-// New constructs the app with all screens wired up. The intro screen is the
-// initial active screen; it emits Navigate(lobby) when its animation ends.
-func New() *App {
+// New constructs the app with all screens wired up. nick is the user's chat
+// handle (e.g. "@boggy"); broker carries shared room state across sessions
+// when chaosbyte runs as an SSH server. broker may be nil for fully-local
+// single-session mode. The intro screen is the initial active screen; it
+// emits Navigate(lobby) when its animation ends.
+func New(nick string, broker *room.Broker) *App {
 	a := &App{
 		screens: map[string]screens.Screen{
 			screens.IntroID:       intro.New(),
-			screens.LobbyID:       lobby.New(),
+			screens.LobbyID:       lobby.New(nick, broker),
 			screens.NewsID:        news.New(),
 			screens.ResourcesID:   resources.New(),
 			screens.SpotlightID:   spotlight.New(),

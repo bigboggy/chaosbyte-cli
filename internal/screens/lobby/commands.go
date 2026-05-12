@@ -136,7 +136,7 @@ func (s *Screen) cmdMe(args []string) (*Screen, tea.Cmd) {
 	}
 	if ch := s.activeChannel(); ch != nil {
 		ch.Messages = append(ch.Messages, ui.ChatMessage{
-			Author: MeUser, Body: body, At: time.Now(), Kind: ui.ChatAction,
+			Author: s.nick, Body: body, At: time.Now(), Kind: ui.ChatAction,
 		})
 		s.chatScroll = 0
 	}
@@ -169,7 +169,7 @@ func (s *Screen) cmdJoin(args []string) (*Screen, tea.Cmd) {
 	s.chatActive = idx
 	s.chatScroll = 0
 	s.channels[idx].Messages = append(s.channels[idx].Messages, ui.ChatMessage{
-		Author: MeUser, Body: "joined " + name, At: time.Now(), Kind: ui.ChatJoin,
+		Author: s.nick, Body: "joined " + name, At: time.Now(), Kind: ui.ChatJoin,
 	})
 	return s, nil
 }
@@ -179,7 +179,7 @@ func (s *Screen) cmdLeave() (*Screen, tea.Cmd) {
 		leaving := s.channels[s.chatActive].Name
 		s.chatActive = 0
 		s.chatScroll = 0
-		s.postSystem(MeUser + " left " + leaving)
+		s.postSystem(s.nick + " left " + leaving)
 		return s, nil
 	}
 	s.postSystem("you're already in #lobby — try /quit to exit")
@@ -216,7 +216,7 @@ func (s *Screen) cmdTopic(args []string) (*Screen, tea.Cmd) {
 		return s, nil
 	}
 	ch.Topic = body
-	s.postSystem(MeUser + " set topic: " + body)
+	s.postSystem(s.nick + " set topic: " + body)
 	return s, nil
 }
 

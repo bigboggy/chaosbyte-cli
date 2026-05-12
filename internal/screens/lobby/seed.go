@@ -6,10 +6,6 @@ import (
 	"github.com/bchayka/gitstatus/internal/ui"
 )
 
-// MeUser is the local user's display name. Hardcoded for this build; in a
-// real app this would come from config.
-const MeUser = "@boggy"
-
 // Channel is a single chat room. Channels live entirely inside the lobby
 // package — no other screen reaches in.
 type Channel struct {

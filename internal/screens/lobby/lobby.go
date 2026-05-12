@@ -16,6 +16,7 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/mod"
+	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -28,6 +29,8 @@ import (
 // screen reports InputFocused()==true and the app's global key handlers stay
 // out of the way.
 type Screen struct {
+	nick string
+
 	channels   []Channel
 	chatActive int
 	chatScroll int
@@ -48,17 +51,42 @@ type Screen struct {
 	welcomeActive bool
 
 	mod *mod.Mod
+
+	// broker hands the shared #lobby scrollback across SSH sessions. When
+	// nil the lobby runs fully local — useful for `go run .` and tests.
+	broker   *room.Broker
+	roomSub  <-chan room.Event
+	lobbyIdx int
 }
 
 // New constructs a fresh lobby with seeded channels and a focused input.
-func New() *Screen {
-	return &Screen{
+// nick is the user's chat handle; broker is the shared room state and may
+// be nil for fully-local mode.
+func New(nick string, broker *room.Broker) *Screen {
+	if nick == "" {
+		nick = "@boggy"
+	}
+	s := &Screen{
+		nick:       nick,
 		channels:   seedChannels(),
 		chatActive: 0,
 		input:      newInput(),
 		backdrop:   field.NewBackdrop(),
 		mod:        mod.New(),
+		broker:     broker,
+		lobbyIdx:   -1,
 	}
+	for i, ch := range s.channels {
+		if ch.Name == "#lobby" {
+			s.lobbyIdx = i
+			break
+		}
+	}
+	if broker != nil && s.lobbyIdx >= 0 {
+		s.channels[s.lobbyIdx].Messages = broker.Snapshot("#lobby")
+		s.roomSub = broker.Subscribe("#lobby")
+	}
+	return s
 }
 
 func newInput() textinput.Model {
@@ -70,7 +98,33 @@ func newInput() textinput.Model {
 	return ti
 }
 
-func (s *Screen) Init() tea.Cmd { return tea.Batch(textinput.Blink, field.TickCmd()) }
+func (s *Screen) Init() tea.Cmd {
+	cmds := []tea.Cmd{textinput.Blink, field.TickCmd()}
+	if c := s.waitForRoom(); c != nil {
+		cmds = append(cmds, c)
+	}
+	return tea.Batch(cmds...)
+}
+
+// roomEventMsg wraps a broker.Event so the lobby can handle it in Update.
+type roomEventMsg room.Event
+
+// waitForRoom returns the Bubbletea command that blocks on the broker
+// subscription. Each broker event is delivered as one roomEventMsg; Update
+// re-issues the command to keep listening.
+func (s *Screen) waitForRoom() tea.Cmd {
+	if s.roomSub == nil {
+		return nil
+	}
+	sub := s.roomSub
+	return func() tea.Msg {
+		evt, ok := <-sub
+		if !ok {
+			return nil
+		}
+		return roomEventMsg(evt)
+	}
+}
 
 func (s *Screen) Name() string  { return screens.LobbyID }
 func (s *Screen) Title() string { return "lobby" }
@@ -117,6 +171,9 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 	case tea.MouseMsg:
 		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
 		return s, nil
+	case roomEventMsg:
+		s.handleRoomEvent(room.Event(m))
+		return s, s.waitForRoom()
 	case field.TickMsg:
 		t := time.Time(m)
 		s.backdrop.Tick(t)
@@ -124,8 +181,10 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 			s.backdrop.SetForegroundLines(nil)
 			s.welcomeActive = false
 		}
-		if line := s.mod.Tick(t); line != "" {
-			s.postMod(line)
+		if s.broker == nil {
+			if line := s.mod.Tick(t); line != "" {
+				s.postMod(line)
+			}
 		}
 		return s, field.TickCmd()
 	}
@@ -249,11 +308,29 @@ func (s *Screen) postUser(body string) {
 		return
 	}
 	now := time.Now()
-	ch.Messages = append(ch.Messages, ui.ChatMessage{
-		Author: MeUser, Body: body, At: now,
-	})
+	msg := ui.ChatMessage{Author: s.nick, Body: body, At: now}
+	if s.broker != nil && ch.Name == "#lobby" {
+		s.broker.Publish("#lobby", msg)
+		return
+	}
+	ch.Messages = append(ch.Messages, msg)
 	s.chatScroll = 0
 	s.mod.NoteChat(now)
+}
+
+// handleRoomEvent applies a broker event to the local channel mirror so the
+// lobby renders the same scrollback every other session sees.
+func (s *Screen) handleRoomEvent(evt room.Event) {
+	for i := range s.channels {
+		if s.channels[i].Name != evt.Channel {
+			continue
+		}
+		s.channels[i].Messages = append(s.channels[i].Messages, evt.Message)
+		if i == s.chatActive {
+			s.chatScroll = 0
+		}
+		return
+	}
 }
 
 // postMod posts a moderator line to the active channel. Visually identical
@@ -285,19 +362,24 @@ func (s *Screen) postSystem(body string) {
 }
 
 // EnsureJoined posts the "entered the chat" join message once, then no-ops on
-// subsequent calls. Called by the router when transitioning from intro.
+// subsequent calls. Called by the router when transitioning from intro. When
+// a broker is attached the join broadcasts so other sessions see the new nick.
 func (s *Screen) EnsureJoined() {
 	if s.joinPosted {
 		return
 	}
-	if ch := s.activeChannel(); ch != nil {
-		ch.Messages = append(ch.Messages, ui.ChatMessage{
-			Author: MeUser, Body: "entered the chat", At: time.Now(), Kind: ui.ChatJoin,
-		})
+	now := time.Now()
+	joinMsg := ui.ChatMessage{
+		Author: s.nick, Body: "entered the chat", At: now, Kind: ui.ChatJoin,
+	}
+	if s.broker != nil {
+		s.broker.Publish("#lobby", joinMsg)
+	} else if ch := s.activeChannel(); ch != nil {
+		ch.Messages = append(ch.Messages, joinMsg)
+		s.postMod(s.mod.Welcome(s.nick))
 	}
 	s.joinPosted = true
 	s.chatScroll = 0
-	s.postMod(s.mod.Welcome(MeUser))
 }
 
 // OnEnter is the router's field-driven entry hook. We pulse the backdrop hard
@@ -306,7 +388,7 @@ func (s *Screen) EnsureJoined() {
 func (s *Screen) OnEnter() {
 	s.backdrop.Pulse(1.0)
 	s.backdrop.SetForegroundLines([]field.Line{
-		{Row: 0, Text: MeUser + " · welcome to chaosbyte"},
+		{Row: 0, Text: s.nick + " · welcome to chaosbyte"},
 	})
 	s.welcomeUntil = time.Now().Add(5 * time.Second)
 	s.welcomeActive = true
@@ -329,7 +411,7 @@ func (s *Screen) View(width, height int) string {
 	barH := lipgloss.Height(bar)
 
 	prompt := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
-		Render("[" + strings.TrimPrefix(MeUser, "@") + "]> ")
+		Render("[" + strings.TrimPrefix(s.nick, "@") + "]> ")
 	s.input.Width = contentW - lipgloss.Width(prompt) - 1
 	inputLine := prompt + s.input.View()
 

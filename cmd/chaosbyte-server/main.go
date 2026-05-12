@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/app"
+	"github.com/bchayka/gitstatus/internal/room"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/ssh"
@@ -29,11 +30,14 @@ func main() {
 	keyPath := flag.String("hostkey", ".ssh/chaosbyte_ed25519", "SSH host key path (auto-generated if missing)")
 	flag.Parse()
 
+	broker := room.New()
+	defer broker.Stop()
+
 	srv, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort(*host, *port)),
 		wish.WithHostKeyPath(*keyPath),
 		wish.WithMiddleware(
-			bm.Middleware(teaHandler),
+			bm.Middleware(handlerFor(broker)),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -62,10 +66,19 @@ func main() {
 	}
 }
 
-func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
-	if _, _, active := s.Pty(); !active {
-		wish.Fatalln(s, "chaosbyte requires an interactive terminal")
-		return nil, nil
+func handlerFor(broker *room.Broker) bm.Handler {
+	return func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
+		if _, _, active := s.Pty(); !active {
+			wish.Fatalln(s, "chaosbyte requires an interactive terminal")
+			return nil, nil
+		}
+		nick := s.User()
+		if nick == "" {
+			nick = "anonymous"
+		}
+		return app.New("@"+nick, broker), []tea.ProgramOption{
+			tea.WithAltScreen(),
+			tea.WithMouseCellMotion(),
+		}
 	}
-	return app.New(), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
 }
