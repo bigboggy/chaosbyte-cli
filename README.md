@@ -9,11 +9,8 @@
 
 > an all-in-one place for devs and vibe coders, in your terminal.
 
-**chaosbyte** is a TUI lobby app. You start in a 90s-style chat with `@boggy entered the chat`,
+**chaosbyte** is a TUI lobby app. You start in a 90s-style chat,
 then you `/news`, `/spotlight`, `/games`, `/resources`, or `/discussions` your way around.
-All data is mocked — there's no API call to Hacker News, no real GitHub repos, no actual
-spotlight rotation announced by a server somewhere. The whole thing is a charm bracelet of
-seeded fixtures pretending to be a hub. That's the point.
 
 Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
 [lipgloss](https://github.com/charmbracelet/lipgloss).
@@ -124,18 +121,6 @@ caught by `internal/app/router.go`. The dependency graph is a star.
 
 ---
 
-## Status
-
-Everything is mock data. There is no server. There is no `mesh.chaosbyte.dev`.
-The fortune cookies are not real.
-
-This is a TUI sketch, a playground for layout and IRC-style ergonomics. If you
-want to hook it up to real sources — actual HN JSON, a real chat backend, a
-GitHub trending scrape — the seams are intentionally clean (each screen has a
-`seed.go` you can replace).
-
----
-
 ## License
 
-MIT. Do whatever; please don't ship a "AI-powered" fork that loses the joke.
+MIT. Do whatever; please don't ship an "AI-powered" fork.
