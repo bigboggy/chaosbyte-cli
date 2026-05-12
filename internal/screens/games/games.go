@@ -1,5 +1,5 @@
-// Package games is the mini-games launcher. Most entries are placeholders;
-// "bug hunter" is the one playable game.
+// Package games is the mini-games launcher. Bricks Blitz is the flagship
+// minigame; everything else is a placeholder.
 package games
 
 import (
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bchayka/gitstatus/internal/bricks"
 	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
@@ -19,14 +20,14 @@ type state int
 
 const (
 	stateList state = iota
-	statePlayBugHunter
+	statePlayBricks
 )
 
 type Screen struct {
 	games []Game
 	idx   int
 	state state
-	bug   bugHunterState
+	blitz *bricks.BricksBlitz
 
 	backdrop *field.Backdrop
 }
@@ -34,7 +35,6 @@ type Screen struct {
 func New() *Screen {
 	return &Screen{
 		games:    seedGames(),
-		bug:      newBugHunter(),
 		backdrop: field.NewBackdrop(),
 	}
 }
@@ -45,14 +45,22 @@ func (s *Screen) Name() string  { return screens.GamesID }
 func (s *Screen) Title() string { return "games" }
 
 func (s *Screen) HeaderContext() string {
+	if s.state == statePlayBricks {
+		return lipgloss.NewStyle().Foreground(theme.Accent).Render("bricks blitz")
+	}
 	return lipgloss.NewStyle().Foreground(theme.Muted).
 		Render(fmt.Sprintf("%d games", len(s.games)))
 }
 
 func (s *Screen) Footer() []screens.KeyHint {
-	if s.state == statePlayBugHunter {
+	if s.state == statePlayBricks {
+		if s.blitz != nil && s.blitz.Done() {
+			return []screens.KeyHint{
+				{Key: "enter", Desc: "lobby"}, {Key: "r", Desc: "rematch"}, {Key: "esc", Desc: "back"},
+			}
+		}
 		return []screens.KeyHint{
-			{Key: "0-9", Desc: "type"}, {Key: "enter", Desc: "guess"}, {Key: "r", Desc: "reset"}, {Key: "esc", Desc: "back"},
+			{Key: "←/→", Desc: "paddle"}, {Key: "shift+←/→", Desc: "fast"}, {Key: "esc", Desc: "back"},
 		}
 	}
 	return []screens.KeyHint{
@@ -62,12 +70,13 @@ func (s *Screen) Footer() []screens.KeyHint {
 
 func (s *Screen) InputFocused() bool { return false }
 
-// BackToList is called by the app when esc is pressed and we're inside a game;
-// it pops back to the launcher list instead of all the way to the lobby.
-// Returns true if the screen handled the esc.
+// BackToList is called by the app router on esc inside a game; it pops back
+// to the launcher list instead of all the way to the lobby. Returns true if
+// the screen handled the esc.
 func (s *Screen) BackToList() bool {
 	if s.state != stateList {
 		s.state = stateList
+		s.blitz = nil
 		return true
 	}
 	return false
@@ -82,18 +91,43 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
 		return s, nil
 	}
+
+	if s.state == statePlayBricks && s.blitz != nil {
+		return s.updateBlitz(msg)
+	}
+
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return s, nil
 	}
 	s.backdrop.Pulse(0.04)
-	switch s.state {
-	case stateList:
-		return s.updateList(km)
-	case statePlayBugHunter:
-		return s, s.updateBugHunter(km)
+	return s.updateList(km)
+}
+
+func (s *Screen) updateBlitz(msg tea.Msg) (screens.Screen, tea.Cmd) {
+	if km, ok := msg.(tea.KeyMsg); ok && s.blitz.Done() {
+		switch km.String() {
+		case "enter":
+			s.state = stateList
+			s.blitz = nil
+			return s, screens.Navigate(screens.LobbyID)
+		case "r":
+			s.blitz = bricks.NewBricksBlitz(0, 0, nil)
+			return s, s.blitz.Init()
+		}
 	}
-	return s, nil
+
+	if _, ok := msg.(bricks.BlitzEndedMsg); ok {
+		score, hits := s.blitz.Score()
+		return s, screens.Flash(fmt.Sprintf("blitz over · %d points · %d lines", score, hits))
+	}
+	if _, ok := msg.(bricks.BlitzStartedMsg); ok {
+		return s, screens.Flash("blitz! 30 seconds — go")
+	}
+
+	var cmd tea.Cmd
+	s.blitz, cmd = s.blitz.Update(msg)
+	return s, cmd
 }
 
 func (s *Screen) updateList(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
@@ -115,9 +149,10 @@ func (s *Screen) updateList(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
 			return s, screens.Flash(g.Name + " is still in alpha. probably forever.")
 		}
 		switch g.Name {
-		case "bug hunter":
-			s.state = statePlayBugHunter
-			s.bug = newBugHunter()
+		case "bricks blitz":
+			s.state = statePlayBricks
+			s.blitz = bricks.NewBricksBlitz(0, 0, nil)
+			return s, s.blitz.Init()
 		}
 	}
 	return s, nil
@@ -128,8 +163,9 @@ func (s *Screen) updateList(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
 // ---------------------------------------------------------------------------
 
 func (s *Screen) View(width, height int) string {
-	if s.state == statePlayBugHunter {
-		return s.renderBugHunter(width, height)
+	if s.state == statePlayBricks && s.blitz != nil {
+		s.blitz.Resize(width, height)
+		return s.blitz.View()
 	}
 	return s.renderList(width, height)
 }

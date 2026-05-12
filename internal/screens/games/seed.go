@@ -8,7 +8,7 @@ type Game struct {
 
 func seedGames() []Game {
 	return []Game{
-		{"bug hunter", "guess which line the bug is on (1-100). lower attempts = more dignity.", true},
+		{"bricks blitz", "30 seconds of chat lines falling — paddle catches them for points, three misses end the round.", true},
 		{"sha sprint", "memorize a 7-char SHA in 3s, then type it back. coming soon.", false},
 		{"vibe roulette", "spin the wheel of vibes. land on 'ship it' or 'rewrite in rust'. coming soon.", false},
 		{"rubber duck", "explain your bug to a duck. the duck has opinions. coming soon.", false},
