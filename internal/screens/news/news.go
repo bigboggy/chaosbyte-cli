@@ -120,7 +120,7 @@ func (s *Screen) View(width, height int) string {
 	stacked := lipgloss.JoinVertical(lipgloss.Left,
 		title, subtitle, indicator, "", body,
 	)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, stacked)
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
 func renderCard(it Item, width int, focused bool) string {

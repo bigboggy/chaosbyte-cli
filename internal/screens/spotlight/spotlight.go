@@ -180,7 +180,7 @@ func (s *Screen) View(width, height int) string {
 		ui.Divider(contentW),
 		input,
 	)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, stacked)
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
 func renderCard(sp Spotlight, width int) string {

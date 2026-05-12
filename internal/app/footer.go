@@ -22,5 +22,5 @@ func (a *App) renderFooter() string {
 		flash = lipgloss.NewStyle().Foreground(theme.OK).Render("  " + a.flash)
 	}
 	inner := theme.Status.Render(help) + flash
-	return lipgloss.PlaceHorizontal(a.width, lipgloss.Center, inner)
+	return lipgloss.PlaceHorizontal(a.width, lipgloss.Left, inner)
 }

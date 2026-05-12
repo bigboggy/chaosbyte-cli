@@ -133,7 +133,7 @@ func (s *Screen) renderList(width, height int) string {
 		rows = append(rows, renderGameRow(g, contentW, i == s.idx))
 	}
 	stacked := lipgloss.JoinVertical(lipgloss.Left, title, subtitle, "", strings.Join(rows, "\n"))
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, stacked)
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
 func renderGameRow(g Game, width int, focused bool) string {

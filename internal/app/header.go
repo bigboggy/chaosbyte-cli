@@ -40,7 +40,7 @@ func (a *App) renderHeader() string {
 		gap = 1
 	}
 	inner := left + strings.Repeat(" ", gap) + right
-	return lipgloss.PlaceHorizontal(a.width, lipgloss.Center, inner)
+	return lipgloss.PlaceHorizontal(a.width, lipgloss.Left, inner)
 }
 
 // tooSmall is the error screen shown when the terminal is below the minimum

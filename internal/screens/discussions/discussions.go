@@ -280,5 +280,5 @@ func (s *Screen) renderMain(termW, bodyH int) string {
 	feed := s.renderFeed(contentW, feedH)
 
 	col := lipgloss.JoinVertical(lipgloss.Left, tabs, "", feed)
-	return lipgloss.Place(termW, bodyH, lipgloss.Center, lipgloss.Top, col)
+	return lipgloss.Place(termW, bodyH, lipgloss.Left, lipgloss.Top, col)
 }

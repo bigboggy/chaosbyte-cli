@@ -30,11 +30,10 @@ type Screen struct {
 	chatActive int
 	chatScroll int
 
-	input          textinput.Model
-	history        []string
-	historyIdx     int
-	completionStem string
-	completionIdx  int
+	input      textinput.Model
+	history    []string
+	historyIdx int
+	paletteIdx int // selection inside the command palette popup
 
 	joinPosted bool
 }
@@ -42,10 +41,9 @@ type Screen struct {
 // New constructs a fresh lobby with seeded channels and a focused input.
 func New() *Screen {
 	return &Screen{
-		channels:      seedChannels(),
-		chatActive:    0,
-		completionIdx: -1,
-		input:         newInput(),
+		channels:   seedChannels(),
+		chatActive: 0,
+		input:      newInput(),
 	}
 }
 
@@ -74,10 +72,17 @@ func (s *Screen) HeaderContext() string {
 }
 
 func (s *Screen) Footer() []screens.KeyHint {
+	if s.paletteVisible() {
+		return []screens.KeyHint{
+			{Key: "↑/↓", Desc: "navigate"},
+			{Key: "tab", Desc: "fill"},
+			{Key: "enter", Desc: "run"},
+			{Key: "esc", Desc: "cancel"},
+		}
+	}
 	return []screens.KeyHint{
 		{Key: "enter", Desc: "send"},
-		{Key: "tab", Desc: "autocomplete"},
-		{Key: "/help", Desc: "commands"},
+		{Key: "/", Desc: "commands"},
 		{Key: "↑/↓", Desc: "history"},
 		{Key: "pgup/pgdn", Desc: "scroll"},
 		{Key: "ctrl+c", Desc: "quit"},
@@ -103,19 +108,39 @@ func (s *Screen) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
 	case "ctrl+c":
 		return s, tea.Quit
 	case "enter":
-		s.resetCompletion()
+		// When the palette is open, Enter accepts the highlighted command —
+		// it's inserted in the input then submitted in one keystroke, matching
+		// the muscle memory of Claude Code / VS Code command palettes.
+		if cmd := s.acceptPalette(); cmd != "" {
+			s.input.SetValue(cmd)
+		}
+		s.resetPalette()
 		return s.submit()
 	case "tab":
-		s.cycleCompletion(1)
+		// Tab fills the input without submitting, so users can pick a command
+		// like /join and then type the channel name.
+		if s.paletteVisible() {
+			s.fillPalette()
+		}
 		return s, nil
 	case "shift+tab":
-		s.cycleCompletion(-1)
+		if s.paletteVisible() {
+			s.movePalette(-1)
+		}
 		return s, nil
 	case "up":
-		s.recallHistory(-1)
+		if s.paletteVisible() {
+			s.movePalette(-1)
+		} else {
+			s.recallHistory(-1)
+		}
 		return s, nil
 	case "down":
-		s.recallHistory(+1)
+		if s.paletteVisible() {
+			s.movePalette(+1)
+		} else {
+			s.recallHistory(+1)
+		}
 		return s, nil
 	case "pgup":
 		s.chatScroll += 5
@@ -128,13 +153,14 @@ func (s *Screen) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
 		return s, nil
 	case "esc":
 		s.input.SetValue("")
-		s.resetCompletion()
+		s.resetPalette()
 		return s, nil
 	}
-	// any other key edits the input → completion cycle invalidates
-	s.resetCompletion()
+	// Any other key edits the input → the filtered match list will change, so
+	// reset the highlight back to the top of the new list.
 	var cmd tea.Cmd
 	s.input, cmd = s.input.Update(msg)
+	s.resetPalette()
 	return s, cmd
 }
 
@@ -248,12 +274,13 @@ func (s *Screen) View(width, height int) string {
 	s.input.Width = contentW - lipgloss.Width(prompt) - 1
 	inputLine := prompt + s.input.View()
 
-	completions := s.renderCompletionStrip(contentW)
-	extraH := 0
-	if completions != "" {
-		extraH = 1
-	}
-	chatH := height - barH - 1 - 3 - extraH
+	palette := s.renderPalette(contentW)
+	paletteH := s.paletteHeight()
+
+	// Layout (bottom-anchored input):
+	//   bar (1) · divider (1) · scrollback (chatH) · divider (1) · palette (paletteH) · input (1)
+	// Total fixed chrome is 4 rows; scrollback flexes around it.
+	chatH := height - barH - paletteH - 4
 	if chatH < 4 {
 		chatH = 4
 	}
@@ -270,12 +297,12 @@ func (s *Screen) View(width, height int) string {
 		visible,
 		ui.Divider(contentW),
 	}
-	if completions != "" {
-		parts = append(parts, completions)
+	if palette != "" {
+		parts = append(parts, palette)
 	}
 	parts = append(parts, inputLine)
 	stacked := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, stacked)
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
 func topBar(ch Channel, width int) string {

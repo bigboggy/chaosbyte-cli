@@ -197,7 +197,7 @@ func (s *Screen) View(width, height int) string {
 	}
 
 	stacked := lipgloss.JoinVertical(lipgloss.Left, title, "", tabsRow, "", body)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, stacked)
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
 func renderTabs(active, width int) string {

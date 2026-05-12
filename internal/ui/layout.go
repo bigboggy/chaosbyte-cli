@@ -11,24 +11,22 @@ import (
 )
 
 const (
-	MinWidth  = 80
-	MinHeight = 22
+	// MinWidth/MinHeight are the soft floors below which we show a
+	// "terminal too small" error instead of rendering. Kept permissive so
+	// resized panes and small terminals still work.
+	MinWidth  = 40
+	MinHeight = 10
 )
 
-// FeedShellWidth returns the centered content width budget. Mirrors the popup
-// sizing so a screen's main column lines up visually with overlays.
+// FeedShellWidth returns the content width budget for a screen body. We use
+// almost the full terminal width (minus a 2-cell right gutter) so content
+// is left-aligned and uses the available horizontal space — no artificial
+// readability cap, no centered column with big margins.
 func FeedShellWidth(termW int) int {
-	w := termW * 80 / 100
-	if w > 100 {
-		w = 100
+	if termW <= 2 {
+		return termW
 	}
-	if w < 60 {
-		w = 60
-	}
-	if w > termW-2 {
-		w = termW - 2
-	}
-	return w
+	return termW - 2
 }
 
 // PopupSize returns reasonable dimensions for a modal overlay.
