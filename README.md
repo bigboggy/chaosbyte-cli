@@ -25,6 +25,8 @@ One-liner (Linux / macOS):
 curl -fsSL https://raw.githubusercontent.com/bigboggy/chaosbyte-cli/main/install.sh | bash
 ```
 
+Installs the **chaosbyte** binary to `~/.local/bin/chaosbyte`.
+
 Uninstall:
 
 ```bash
