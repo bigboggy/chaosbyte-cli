@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/screens"
+	"github.com/bchayka/gitstatus/internal/screens/ambient"
 	"github.com/bchayka/gitstatus/internal/screens/discussions"
 	"github.com/bchayka/gitstatus/internal/screens/games"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
@@ -56,6 +57,7 @@ func New() *App {
 			screens.SpotlightID:   spotlight.New(),
 			screens.GamesID:       games.New(),
 			screens.DiscussionsID: discussions.New(),
+			screens.AmbientID:     ambient.New(),
 		},
 		current: screens.IntroID,
 	}

@@ -96,4 +96,5 @@ const (
 	SpotlightID   = "spotlight"
 	GamesID       = "games"
 	DiscussionsID = "discussions"
+	AmbientID     = "ambient"
 )
