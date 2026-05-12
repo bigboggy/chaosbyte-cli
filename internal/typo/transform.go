@@ -6,27 +6,25 @@ import (
 	"time"
 )
 
-// CellTransform represents a cell that has been temporarily "borrowed" from
-// its natural Layout position for an event. While a transform is active,
-// the cell renders at its PathFn-computed position instead of (Col, Row).
-//
-// Transforms have lifespans. When BornAt + Duration passes, the cell returns
-// to its natural position on the next Tick. Multiple transforms can target
-// the same cell only via the choreographer's merge logic; the renderer
-// itself trusts that the active set is collision-free.
+// CellTransform is the renderer-facing output of an active Effect: which
+// source cell is displaced and what offset it should render at this frame.
+// The Choreographer produces these every Tick from its active Effects.
 type CellTransform struct {
-	SourceLayoutID string // which Layout this cell belongs to
-	SourceCellIdx  int    // index into that Layout's Cells slice
-	Char           rune   // the actual rune to render (may differ from source if transforming)
+	SourceLayoutID string  // which Layout this cell originally belongs to
+	SourceCellIdx  int     // index into that Layout's Cells slice
+	OffsetX        float64 // current displacement from natural (Col, Row)
+	OffsetY        float64
 
-	Path     PathFn
-	Duration time.Duration
-	BornAt   time.Time
-	Seed     int64 // per-event seed, drives PathFn determinism + variation
-	TargetX  float64
-	TargetY  float64
-	OriginX  float64 // optional anchor different from source cell's natural position
-	OriginY  float64
+	// EffectKind is a label the renderer can read to apply effect-specific
+	// styling on top of the offset (e.g., "scatter" cells render brighter).
+	EffectKind string
+}
+
+// CellRef points at one cell within a Layout. Effects list the CellRefs they
+// want to borrow.
+type CellRef struct {
+	LayoutID string
+	Idx      int
 }
 
 // PathArgs is the input to every PathFn. Frozen on call so PathFns are pure.
