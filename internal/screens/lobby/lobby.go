@@ -19,6 +19,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/bchayka/gitstatus/internal/typo"
 	"github.com/bchayka/gitstatus/internal/ui"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -60,6 +61,13 @@ type Screen struct {
 	broker   *room.Broker
 	roomSub  <-chan room.Event
 	lobbyIdx int
+
+	// choreographer drives event-triggered cell animations (waves, awards,
+	// gathers). Lobby renders any active CellTransforms over the chat
+	// scrollback area each frame.
+	choreographer    *typo.Choreographer
+	demoLayouts      map[string]*typo.Layout // keyed by Layout.ID; sources for active transforms
+	activeTransforms []typo.CellTransform    // updated each Tick; consumed in View
 }
 
 // New constructs a fresh lobby with seeded channels and a focused input.
@@ -72,14 +80,16 @@ func New(nick string, broker *room.Broker) *Screen {
 		nick = "@boggy"
 	}
 	s := &Screen{
-		nick:       nick,
-		channels:   seedChannels(),
-		chatActive: 0,
-		input:      newInput(),
-		backdrop:   field.NewBackdrop(),
-		mod:        mod.New(),
-		broker:     broker,
-		lobbyIdx:   -1,
+		nick:          nick,
+		channels:      seedChannels(),
+		chatActive:    0,
+		input:         newInput(),
+		backdrop:      field.NewBackdrop(),
+		mod:           mod.New(),
+		broker:        broker,
+		lobbyIdx:      -1,
+		choreographer: typo.NewChoreographer(),
+		demoLayouts:   map[string]*typo.Layout{},
 	}
 	for i, ch := range s.channels {
 		if ch.Name == "#lobby" {
@@ -189,6 +199,7 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		t := time.Time(m)
 		s.backdrop.Tick(t)
 		s.updateTier(t)
+		s.activeTransforms = s.choreographer.Tick(t)
 		if s.broker == nil {
 			if line := s.mod.Tick(t); line != "" {
 				s.postMod(line)
@@ -489,6 +500,13 @@ func (s *Screen) View(width, height int) string {
 	fieldRows := strings.Split(s.backdrop.Render(contentW, chatH), "\n")
 	visible := field.Composite(chatRows, fieldRows, chatH)
 
+	// Render any active CellTransforms on top of the chat area. The demo
+	// /wave command schedules a Scatter on a Layout in s.demoLayouts;
+	// transforms move those cells across the chat region for ~1.5s.
+	if len(s.activeTransforms) > 0 {
+		visible = s.composeTransformOverlay(visible, contentW, chatH, now)
+	}
+
 	parts := []string{
 		bar,
 		ui.Divider(contentW),
@@ -514,6 +532,114 @@ func topBar(ch Channel, width int) string {
 		left = ui.Truncate(left, width)
 	}
 	return left
+}
+
+// composeTransformOverlay renders active CellTransforms as an overlay on
+// top of the existing chat scrollback. Demo Layouts in s.demoLayouts are
+// the source of borrowed cells; their natural origin is set to mid-chat
+// for now. Real chat-message Layouts will be wired in once chat scrollback
+// uses the Compositor directly.
+func (s *Screen) composeTransformOverlay(base string, width, height int, now time.Time) string {
+	comp := typo.NewCompositor(width, height)
+	origins := map[string]typo.LayoutOrigin{}
+	for id, layout := range s.demoLayouts {
+		// Center horizontally, place ~2/3 down the chat area so a Scatter
+		// has room above and below to fan into.
+		x := (width - layout.Width) / 2
+		if x < 0 {
+			x = 0
+		}
+		y := height * 2 / 3
+		origins[id] = typo.LayoutOrigin{Layout: layout, X: x, Y: y}
+	}
+	comp.DrawTransforms(s.activeTransforms, origins, now)
+	overlay := comp.Render()
+	return overlayRows(base, overlay, height)
+}
+
+// overlayRows merges two equal-height multi-line strings, taking the
+// overlay's non-blank cells in preference to base. Both strings are
+// expected to have `height` rows; if not, the shorter one is padded.
+func overlayRows(base, overlay string, height int) string {
+	baseRows := splitToHeight(base, height)
+	overRows := splitToHeight(overlay, height)
+	out := make([]string, height)
+	for i := 0; i < height; i++ {
+		b, o := baseRows[i], overRows[i]
+		if strings.TrimSpace(stripAnsi(o)) == "" {
+			out[i] = b
+			continue
+		}
+		// Cell-level overlay: for every visible cell in o, place it over b.
+		out[i] = overlayCells(b, o)
+	}
+	return strings.Join(out, "\n")
+}
+
+func splitToHeight(s string, height int) []string {
+	rows := strings.Split(s, "\n")
+	if len(rows) < height {
+		for len(rows) < height {
+			rows = append(rows, "")
+		}
+	}
+	if len(rows) > height {
+		rows = rows[:height]
+	}
+	return rows
+}
+
+// overlayCells takes two rendered rows (ANSI-styled) and produces a row where
+// `over`'s non-space cells replace `base`'s cells at the same visible column.
+// Cheap implementation: split both by visible column, replace cell-by-cell.
+func overlayCells(base, over string) string {
+	// Strip both, walk visible cols, pick `over` where non-space.
+	// For perf this is fine — only runs when transforms are active.
+	baseRunes := []rune(stripAnsi(base))
+	overRunes := []rune(stripAnsi(over))
+	maxLen := len(baseRunes)
+	if len(overRunes) > maxLen {
+		maxLen = len(overRunes)
+	}
+	var b strings.Builder
+	for i := 0; i < maxLen; i++ {
+		switch {
+		case i < len(overRunes) && overRunes[i] != ' ':
+			// Re-style: bold accent for borrowed cells. We're losing the
+			// finer per-cell styles from the overlay's ANSI here — fine for
+			// the demo; the proper fix is to teach the compositor to emit
+			// row-by-row with style preserved.
+			b.WriteString(lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render(string(overRunes[i])))
+		case i < len(baseRunes):
+			b.WriteRune(baseRunes[i])
+		default:
+			b.WriteByte(' ')
+		}
+	}
+	return b.String()
+}
+
+// stripAnsi removes ANSI SGR sequences from a string, leaving raw runes.
+// Used by the overlay merge so we can compare visible columns. Kept local
+// to lobby for now since the typo package already has one we'd want to
+// consolidate to later.
+func stripAnsi(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // scrollbackRows clamps the scroll offset and returns the visible slice as a

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/screens"
+	"github.com/bchayka/gitstatus/internal/typo"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -37,6 +38,7 @@ var builtins = []command{
 	{"/clear", "clear scrollback"},
 	{"/help", "show all commands"},
 	{"/quit", "exit chaosbyte"},
+	{"/wave", "test: scatter the last message's letters"},
 }
 
 // aliases maps an alternate spelling to its canonical command name. Aliases
@@ -90,6 +92,8 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s.cmdClear()
 	case "/quit":
 		return s, screens.Quit()
+	case "/wave":
+		return s.cmdWave()
 	case "/me":
 		return s.cmdMe(args)
 	case "/join":
@@ -218,6 +222,42 @@ func (s *Screen) cmdTopic(args []string) (*Screen, tea.Cmd) {
 	ch.Topic = body
 	s.postSystem(s.nick + " set topic: " + body)
 	return s, nil
+}
+
+// cmdWave is a test command that fires a Scatter effect on the most recent
+// chat message's body. Used to eyeball-verify the choreographer +
+// compositor render path before wiring real triggers (reactions, awards,
+// mod summons). Will be removed once the real triggers exist.
+func (s *Screen) cmdWave() (*Screen, tea.Cmd) {
+	ch := s.activeChannel()
+	if ch == nil || len(ch.Messages) == 0 {
+		s.postSystem("/wave: no messages to scatter")
+		return s, nil
+	}
+	last := ch.Messages[len(ch.Messages)-1]
+	body := strings.TrimSpace(last.Body)
+	if body == "" {
+		s.postSystem("/wave: last message has no body")
+		return s, nil
+	}
+	if len(body) > 32 {
+		body = body[:32]
+	}
+	layoutID := "wave-" + time.Now().Format("150405")
+	layout := typo.Prepare(layoutID, body, 80)
+	s.demoLayouts[layoutID] = layout
+	cells := make([]typo.CellRef, len(layout.Cells))
+	for i := range layout.Cells {
+		cells[i] = typo.CellRef{LayoutID: layoutID, Idx: i}
+	}
+	s.choreographer.Schedule(&typo.Effect{
+		Kind:     "scatter",
+		Path:     typo.Scatter(5),
+		Duration: 1500 * time.Millisecond,
+		Seed:     time.Now().UnixNano(),
+		Cells:    cells,
+	})
+	return s, screens.Flash("wave fired")
 }
 
 func truncate(s string, n int) string {
