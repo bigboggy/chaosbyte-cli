@@ -79,9 +79,17 @@ func (b *Backdrop) Render(width, height int) string {
 
 // SetForegroundLines hands a list of foreground text overlays to the engine.
 // Cells on those lines render with the engine's foreground style (bright
-// white) and participate in the cursor cascade.
+// white) and participate in the cursor cascade. Persistent variant — for
+// event-driven text that auto-decays, use AddCascade.
 func (b *Backdrop) SetForegroundLines(lines []Line) {
 	b.engine.SetForegroundLines(lines)
+}
+
+// AddCascade fires a triggered cascade line that lives for c.Decay seconds.
+// Use this for chat joins, spotlight rotations, mod alerts — discrete
+// moments the engine should react to.
+func (b *Backdrop) AddCascade(c CascadeLine) {
+	b.engine.AddCascade(c)
 }
 
 // TickMsg fires at ~60fps while a backdrop is active. Screens dispatch this

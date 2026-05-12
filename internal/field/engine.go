@@ -254,6 +254,21 @@ type Engine struct {
 	// Intensity tier 0..4, see SetTier.
 	tier    int
 	otFloor float64
+
+	// cascades are time-bound foreground lines added via AddCascade. The
+	// engine renders them on top of the field for cascade.Decay seconds
+	// after BornAt, then drops them on the next Tick.
+	cascades []CascadeLine
+}
+
+// CascadeLine is a foreground text overlay with a built-in lifespan. Unlike
+// SetForegroundLines (which is for persistent overlays), cascades are
+// event-triggered: a chat join, a spotlight rotation, a mod alert.
+type CascadeLine struct {
+	Row    int
+	Text   string
+	BornAt time.Time
+	Decay  time.Duration
 }
 
 // NewEngine returns a configured engine with a default source word and
@@ -351,15 +366,93 @@ func (e *Engine) SourceWord() string { return e.sourceWord }
 
 // SetForegroundLines configures the text overlays the engine renders on top
 // of the field. Each line is a row-positioned text that cascades when the
-// cursor passes near it.
+// cursor passes near it. This is the persistent variant; for event-driven
+// text that auto-decays, use AddCascade instead.
 func (e *Engine) SetForegroundLines(lines []Line) {
 	e.fgLines = lines
 	// Reset per-cell flap state so removed lines stop ghosting.
 	e.fgFlap = make(map[[2]int]*flapState)
 }
 
+// updateForegroundLines replaces fgLines but preserves per-cell flap state
+// for cells whose target rune at the same (row, col) hasn't changed. Used
+// by AddCascade so adding/removing one cascade doesn't reset the others.
+func (e *Engine) updateForegroundLines(lines []Line) {
+	e.fgLines = lines
+	targets := map[[2]int]rune{}
+	for _, line := range lines {
+		col := 0
+		for _, r := range line.Text {
+			targets[[2]int{col, line.Row}] = r
+			col++
+		}
+	}
+	for key, fl := range e.fgFlap {
+		target, ok := targets[key]
+		if !ok || target != fl.target {
+			delete(e.fgFlap, key)
+		}
+	}
+}
+
+// AddCascade registers a time-bound foreground line. The engine pulses the
+// motion accumulator on add so the cells actually flap into place, then
+// drops the line after c.Decay. Replaces any active cascade on the same row.
+//
+// Use this for triggered moments: chat joins, spotlight rotation, mod
+// alerts. The persistent SetForegroundLines is for fixed identity (e.g. an
+// ambient screen's static labels).
+func (e *Engine) AddCascade(c CascadeLine) {
+	if c.BornAt.IsZero() {
+		c.BornAt = time.Now()
+	}
+	if c.Decay == 0 {
+		c.Decay = 4 * time.Second
+	}
+	placed := false
+	for i := range e.cascades {
+		if e.cascades[i].Row == c.Row {
+			e.cascades[i] = c
+			placed = true
+			break
+		}
+	}
+	if !placed {
+		e.cascades = append(e.cascades, c)
+	}
+	e.rebuildCascadeLines()
+	e.Pulse(0.95)
+}
+
+// rebuildCascadeLines collapses the active cascades into fgLines.
+func (e *Engine) rebuildCascadeLines() {
+	lines := make([]Line, 0, len(e.cascades))
+	for _, c := range e.cascades {
+		lines = append(lines, Line{Row: c.Row, Text: c.Text})
+	}
+	e.updateForegroundLines(lines)
+}
+
+// expireCascades drops cascades whose lifespan is over. Called once per Tick.
+func (e *Engine) expireCascades(now time.Time) {
+	fresh := e.cascades[:0]
+	changed := false
+	for _, c := range e.cascades {
+		if now.Sub(c.BornAt) < c.Decay {
+			fresh = append(fresh, c)
+		} else {
+			changed = true
+		}
+	}
+	if changed {
+		e.cascades = fresh
+		e.rebuildCascadeLines()
+	}
+}
+
 // Tick advances the engine's state one frame. Call before Render.
 func (e *Engine) Tick(now time.Time) {
+	e.expireCascades(now)
 	e.timeMs = float64(now.Sub(e.startedAt).Milliseconds())
 	e.frame++
 
@@ -395,7 +488,11 @@ func (e *Engine) Tick(now time.Time) {
 		e.ot = e.otFloor
 	}
 
-	if e.ot < 0.3 {
+	// Tier 0 is meant to be quiet — no per-frame palette reshuffle so the
+	// field stops flickering when nothing's happening in the room. The
+	// palette pair is whatever the engine last picked at tier 1+, then
+	// freezes here until something raises the tier or fires a cascade.
+	if e.tier > 0 && e.ot < 0.3 {
 		e.qA = paletteBright[e.rng.Intn(len(paletteBright))]
 		e.qB = paletteDim[e.rng.Intn(len(paletteDim))]
 	}

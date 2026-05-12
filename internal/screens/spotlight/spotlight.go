@@ -50,11 +50,26 @@ func New() *Screen {
 
 func (s *Screen) Init() tea.Cmd { return field.TickCmd() }
 
-// OnEnter is the router's field-driven entry hook: pulse the backdrop and
-// force the title to re-register so the cascade replays on re-entry.
+// OnEnter is the router's field-driven entry hook: fire a cascade for the
+// current spotlight so the project name flap-spins on entry, then decays.
 func (s *Screen) OnEnter() {
-	s.backdrop.Pulse(0.8)
 	s.fgIdx = -1
+	s.cascadeCurrent()
+}
+
+// cascadeCurrent fires the title cascade for the active item. Called on
+// entry and on engine rotation; the cascade auto-decays so the field
+// returns to quiet after the moment lands.
+func (s *Screen) cascadeCurrent() {
+	if s.engine.Index() >= len(s.items) {
+		return
+	}
+	sp := s.items[s.engine.Index()]
+	s.backdrop.AddCascade(field.CascadeLine{
+		Row:   0,
+		Text:  "spotlight · " + sp.Project,
+		Decay: 4 * time.Second,
+	})
 }
 
 func (s *Screen) Name() string  { return screens.SpotlightID }
@@ -122,20 +137,17 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 	return s, nil
 }
 
-// syncForegroundTitle registers the current item's title as a field
-// foreground line whenever the index changes. SetForegroundLines resets per
-// cell flap state so we only call it on actual changes; the pulse fires once
-// per entry inside Update.
+// syncForegroundTitle fires a cascade whenever the active spotlight index
+// changes — engine rotation, accept, skip. The cascade auto-decays so the
+// title doesn't sit on the field forever; the persistent screen label
+// stays as a lipgloss element above the card.
 func (s *Screen) syncForegroundTitle() {
 	idx := s.engine.Index()
 	if idx == s.fgIdx || idx >= len(s.items) {
 		return
 	}
 	s.fgIdx = idx
-	sp := s.items[idx]
-	s.backdrop.SetForegroundLines([]field.Line{
-		{Row: 0, Text: "spotlight · " + sp.Project},
-	})
+	s.cascadeCurrent()
 }
 
 func (s *Screen) updateNormal(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
@@ -218,8 +230,10 @@ func (s *Screen) View(width, height int) string {
 	}
 	sp := s.items[idx]
 
-	// Row 0 is reserved as a blank slot in content rows so the field's
-	// foreground title shows through. Row 1 carries the engine status copy.
+	// Row 0 is the persistent screen title (lipgloss). The cascade fired on
+	// rotation also lives at row 0 of the field and shows through when it's
+	// active; once it decays the static title still sits above the field.
+	titleLine := theme.Title.Render("spotlight · " + sp.Project)
 	statusLine := s.renderStatusLine(sp, contentW)
 
 	var card string
@@ -261,7 +275,7 @@ func (s *Screen) View(width, height int) string {
 	}
 
 	parts := []string{
-		"", // row 0 — field-rendered title cascades here
+		titleLine,
 		statusLine,
 		"",
 	}

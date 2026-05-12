@@ -47,9 +47,6 @@ type Screen struct {
 	// drift the same way mouse motion does on the ertdfgcvb site.
 	backdrop *field.Backdrop
 
-	welcomeUntil  time.Time
-	welcomeActive bool
-
 	// tier state: hypeUntil holds the deadline for a tier-3 burst triggered
 	// by chat arrivals; lastChatEvent is used to drop to tier 0 on long
 	// silences.
@@ -192,10 +189,6 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		t := time.Time(m)
 		s.backdrop.Tick(t)
 		s.updateTier(t)
-		if s.welcomeActive && t.After(s.welcomeUntil) {
-			s.backdrop.SetForegroundLines(nil)
-			s.welcomeActive = false
-		}
 		if s.broker == nil {
 			if line := s.mod.Tick(t); line != "" {
 				s.postMod(line)
@@ -353,7 +346,9 @@ func (s *Screen) updateTier(t time.Time) {
 }
 
 // handleRoomEvent applies a broker event to the local channel mirror so the
-// lobby renders the same scrollback every other session sees.
+// lobby renders the same scrollback every other session sees. Some kinds
+// (joins, mod posts) also trigger a foreground cascade so the engine
+// announces them visibly on top of the field.
 func (s *Screen) handleRoomEvent(evt room.Event) {
 	for i := range s.channels {
 		if s.channels[i].Name != evt.Channel {
@@ -363,8 +358,33 @@ func (s *Screen) handleRoomEvent(evt room.Event) {
 		if i == s.chatActive {
 			s.chatScroll = 0
 		}
+		break
+	}
+	if evt.Channel != s.activeChannelName() {
 		return
 	}
+	switch {
+	case evt.Message.Kind == ui.ChatJoin:
+		s.backdrop.AddCascade(field.CascadeLine{
+			Row:   0,
+			Text:  evt.Message.Author + " joined",
+			Decay: 4 * time.Second,
+		})
+	case evt.Message.Kind == ui.ChatAction && evt.Message.Author == mod.Nick:
+		s.backdrop.AddCascade(field.CascadeLine{
+			Row:   1,
+			Text:  mod.Nick + " · " + evt.Message.Body,
+			Decay: 5 * time.Second,
+		})
+	}
+}
+
+// activeChannelName returns the name of the active channel, or "" if none.
+func (s *Screen) activeChannelName() string {
+	if ch := s.activeChannel(); ch != nil {
+		return ch.Name
+	}
+	return ""
 }
 
 // postMod posts a moderator line to the active channel. Visually identical
@@ -421,12 +441,11 @@ func (s *Screen) EnsureJoined() {
 // and register the user's nick as a foreground line so it flap-spins across
 // the field; both decay naturally over a few seconds.
 func (s *Screen) OnEnter() {
-	s.backdrop.Pulse(1.0)
-	s.backdrop.SetForegroundLines([]field.Line{
-		{Row: 0, Text: s.nick + " · welcome to chaosbyte"},
+	s.backdrop.AddCascade(field.CascadeLine{
+		Row:   0,
+		Text:  s.nick + " · welcome to chaosbyte",
+		Decay: 5 * time.Second,
 	})
-	s.welcomeUntil = time.Now().Add(5 * time.Second)
-	s.welcomeActive = true
 }
 
 // ---------------------------------------------------------------------------
