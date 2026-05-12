@@ -23,13 +23,17 @@ func renderChatLineAnim(msg ui.ChatMessage, width int, now time.Time) []string {
 }
 
 // renderChatLineAnimDetailed returns the rendered rows plus the body text
-// and the prefix's rendered width. The caller uses the body + prefix-width
+// and the prefix's rendered width. The caller uses the body + prefix width
 // to build a typo.Layout for the body so the choreographer can fire effects
 // against real chat content. This is the typo-based replacement for
-// ui.RenderChatLine — builds the static prefix once, types the body in via
-// the typo Greet macro for messages still inside the arrival window.
+// ui.RenderChatLine. It builds the static prefix once, types the body in
+// for messages still inside the arrival window, and reserves a two-cell
+// margin column on the left for the moderator's mark.
 func renderChatLineAnimDetailed(msg ui.ChatMessage, width int, now time.Time) ([]string, string, int) {
-	prefix, prefixWidth, bodyStyle := chatPrefix(msg)
+	margin := chatMargin(msg, now)
+	prefix, _, bodyStyle := chatPrefix(msg)
+	prefix = margin + prefix
+	prefixWidth := lipgloss.Width(prefix)
 	bodyText := bodyForKind(msg)
 	bodyWidth := width - prefixWidth - 1
 	if bodyWidth < 12 {
@@ -136,4 +140,32 @@ func typoTypeAt(perCharMs int) typo.Macro {
 // and timestamp. Used as Layout.ID.
 func msgKey(msg ui.ChatMessage) string {
 	return msg.Author + "@" + msg.At.UTC().Format(time.RFC3339Nano)
+}
+
+// tagFlap is the small cycle of glyphs a moderator mark passes through
+// during its first 300ms before settling on the target marker. Reads as
+// a brief landing rather than a hard pop-in.
+var tagFlap = []rune{'·', '•', '◦', '○'}
+
+// chatMargin returns the styled two-cell margin column for a chat row.
+// When the message carries a moderator tag the column shows the marker
+// glyph, animated for the first 300ms of its life. Untagged rows return
+// two spaces so the column aligns with tagged rows.
+func chatMargin(msg ui.ChatMessage, now time.Time) string {
+	if len(msg.Tags) == 0 {
+		return "  "
+	}
+	tag := msg.Tags[0]
+	if tag.BornAt.IsZero() {
+		return lipgloss.NewStyle().Foreground(theme.Warn).Render(string(tag.Marker)) + " "
+	}
+	elapsed := now.Sub(tag.BornAt)
+	if elapsed < 0 {
+		return "  "
+	}
+	if elapsed > 300*time.Millisecond {
+		return lipgloss.NewStyle().Foreground(theme.Warn).Render(string(tag.Marker)) + " "
+	}
+	idx := int(elapsed.Milliseconds()/60) % len(tagFlap)
+	return lipgloss.NewStyle().Foreground(theme.Muted).Render(string(tagFlap[idx])) + " "
 }

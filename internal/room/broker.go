@@ -124,7 +124,23 @@ func (b *Broker) Subscribe() <-chan Event {
 // Publish appends a message to the channel and broadcasts to subscribers.
 // The mod's idle clock is reset on every publish. A ChatJoin kind triggers
 // a follow-up mod welcome so other sessions see "@mod welcomes @newnick".
+//
+// Before broadcast the moderator inspects the message and may attach tags.
+// The rules-v0 detector handles questions (lines that end with '?'); future
+// rules cover URLs, code, builds, and repo drops. Tagged messages carry
+// the moderator's marker in the margin once they arrive in subscribers'
+// views.
 func (b *Broker) Publish(channel string, msg ui.ChatMessage) {
+	if msg.Kind == ui.ChatNormal {
+		if tag := mod.QuestionTag(msg.Body); tag != nil {
+			msg.Tags = append(msg.Tags, ui.ChatTag{
+				Kind:   tag.Kind,
+				Marker: tag.Marker,
+				Reason: tag.Reason,
+				BornAt: tag.BornAt,
+			})
+		}
+	}
 	b.publish(channel, msg)
 	if msg.Kind == ui.ChatJoin && msg.Author != "" {
 		b.publish(channel, ui.ChatMessage{

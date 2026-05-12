@@ -6,6 +6,7 @@ package mod
 
 import (
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -85,3 +86,34 @@ func (m *Mod) Tick(t time.Time) string {
 
 // Nick is the author label the lobby uses when posting mod lines.
 const Nick = "@mod"
+
+// QuestionTag returns a tag if body reads as a question, otherwise nil.
+// The rule is the rules-v0 heuristic: trim, must be a normal chat line,
+// must end in '?' after trimming. Future rules go alongside this one in
+// internal/mod and the broker invokes each on every publish.
+func QuestionTag(body string) *Tag {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return nil
+	}
+	if !strings.HasSuffix(trimmed, "?") {
+		return nil
+	}
+	return &Tag{
+		Kind:   "question",
+		Marker: '✦',
+		Reason: "looks like a question, marked for attention",
+		BornAt: time.Now(),
+	}
+}
+
+// Tag is the moderator's annotation about a chat message. The broker
+// attaches Tags to outgoing messages so subscribers receive the message
+// already marked. Tag mirrors ui.ChatTag without depending on the ui
+// package, which would create a cycle.
+type Tag struct {
+	Kind   string
+	Marker rune
+	Reason string
+	BornAt time.Time
+}

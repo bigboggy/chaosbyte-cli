@@ -20,11 +20,27 @@ const (
 	ChatJoin
 )
 
+// ChatTag is a moderator annotation that attaches to a chat message after
+// publish. The marker glyph appears in the margin and identifies what the
+// moderator saw in the post. Tags carry a born timestamp so the renderer
+// can animate their arrival; expired tags get filtered out at the source.
+type ChatTag struct {
+	Kind   string    // "question", "url", "code", "alert"
+	Marker rune      // glyph drawn in the margin, defaults to ✦
+	Reason string    // human-readable why, surfaced on focus
+	BornAt time.Time // when the moderator attached this tag
+}
+
 type ChatMessage struct {
 	Author string
 	Body   string
 	At     time.Time
 	Kind   ChatKind
+
+	// Tags are moderator annotations attached after publish. The room's
+	// renderer reads these to place the margin glyph and to animate its
+	// arrival when the BornAt is recent.
+	Tags []ChatTag
 }
 
 // RenderChatLine produces one or more visual lines for a single message, wrapping
