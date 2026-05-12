@@ -100,8 +100,21 @@ func (b *Broker) Subscribe(channel string) <-chan Event {
 }
 
 // Publish appends a message to the channel and broadcasts to subscribers.
-// The mod's idle clock is reset on every publish.
+// The mod's idle clock is reset on every publish. A ChatJoin kind triggers
+// a follow-up mod welcome so other sessions see "@mod welcomes @newnick".
 func (b *Broker) Publish(channel string, msg ui.ChatMessage) {
+	b.publish(channel, msg)
+	if msg.Kind == ui.ChatJoin && msg.Author != "" {
+		b.publish(channel, ui.ChatMessage{
+			Author: mod.Nick,
+			Body:   b.mod.Welcome(msg.Author),
+			At:     msg.At,
+			Kind:   ui.ChatAction,
+		})
+	}
+}
+
+func (b *Broker) publish(channel string, msg ui.ChatMessage) {
 	b.mu.Lock()
 	b.messages[channel] = append(b.messages[channel], msg)
 	b.mod.NoteChat(msg.At)
