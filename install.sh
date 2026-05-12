@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
-REPO="bchayka/gitstatus"
+REPO="bigboggy/chaosbyte-cli"
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_NAME="gitstatus"
 VERSION="${VERSION:-latest}"

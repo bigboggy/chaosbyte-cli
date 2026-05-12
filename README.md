@@ -22,13 +22,13 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
 One-liner (Linux / macOS):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bchayka/gitstatus/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bigboggy/chaosbyte-cli/main/install.sh | bash
 ```
 
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bchayka/gitstatus/main/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/bigboggy/chaosbyte-cli/main/install.sh | bash -s -- --uninstall
 ```
 
 ---
