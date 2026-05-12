@@ -250,6 +250,10 @@ type Engine struct {
 	// per-cell decayed intensity (motion-blur trails)
 	fieldNT []float64
 	gridLen int
+
+	// Intensity tier 0..4, see SetTier.
+	tier    int
+	otFloor float64
 }
 
 // NewEngine returns a configured engine with a default source word and
@@ -289,6 +293,41 @@ func (e *Engine) SetCursor(x, y float64) {
 	e.cursorX = x
 	e.cursorY = y
 }
+
+// SetTier moves the engine into one of five intensity tiers. The mod calls
+// this to express the room's energy:
+//   - 0 Quiet ambient: idle baseline, palette barely drifts
+//   - 1 Reactive: default — typing and cursor cause normal field response
+//   - 2 Eventful: spotlight starts, nick joins, repo shared
+//   - 3 Hype: blitz announcement, shoutout, parallel moments
+//   - 4 Game / takeover: field recedes so the game has the floor
+//
+// The change takes effect on the next Tick; the floor is a soft minimum on
+// the motion accumulator, not a fixed value.
+func (e *Engine) SetTier(t int) {
+	if t < 0 {
+		t = 0
+	}
+	if t > 4 {
+		t = 4
+	}
+	e.tier = t
+	switch t {
+	case 0:
+		e.otFloor = 0
+	case 1:
+		e.otFloor = 0.15
+	case 2:
+		e.otFloor = 0.35
+	case 3:
+		e.otFloor = 0.65
+	case 4:
+		e.otFloor = 0
+	}
+}
+
+// Tier returns the current intensity tier.
+func (e *Engine) Tier() int { return e.tier }
 
 // Pulse bumps the motion accumulator directly. Use this from non-mouse
 // activity (keystrokes, message arrivals) to drive palette drift even when
@@ -345,6 +384,15 @@ func (e *Engine) Tick(now time.Time) {
 	}
 	if e.ot > 1 {
 		e.ot = 1
+	}
+	// Intensity tier floor: the mod can push the engine into higher tiers
+	// without supplying constant motion; the floor keeps ot from sagging
+	// below tier-appropriate baseline. Tier 4 overrides everything to zero
+	// so the field recedes during game / takeover moments.
+	if e.tier == 4 {
+		e.ot = 0
+	} else if e.ot < e.otFloor {
+		e.ot = e.otFloor
 	}
 
 	if e.ot < 0.3 {

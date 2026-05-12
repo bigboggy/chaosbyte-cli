@@ -50,6 +50,12 @@ type Screen struct {
 	welcomeUntil  time.Time
 	welcomeActive bool
 
+	// tier state: hypeUntil holds the deadline for a tier-3 burst triggered
+	// by chat arrivals; lastChatEvent is used to drop to tier 0 on long
+	// silences.
+	hypeUntil     time.Time
+	lastChatEvent time.Time
+
 	mod *mod.Mod
 
 	// broker hands the shared #lobby scrollback across SSH sessions. When
@@ -173,10 +179,13 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		return s, nil
 	case roomEventMsg:
 		s.handleRoomEvent(room.Event(m))
+		s.hypeUntil = time.Now().Add(5 * time.Second)
+		s.lastChatEvent = time.Now()
 		return s, s.waitForRoom()
 	case field.TickMsg:
 		t := time.Time(m)
 		s.backdrop.Tick(t)
+		s.updateTier(t)
 		if s.welcomeActive && t.After(s.welcomeUntil) {
 			s.backdrop.SetForegroundLines(nil)
 			s.welcomeActive = false
@@ -316,6 +325,20 @@ func (s *Screen) postUser(body string) {
 	ch.Messages = append(ch.Messages, msg)
 	s.chatScroll = 0
 	s.mod.NoteChat(now)
+}
+
+// updateTier maps room state onto the field's five intensity tiers. A recent
+// chat arrival puts the lobby at tier 3 (hype) for five seconds; long
+// silences (30s+) drop to tier 0 (quiet); everything in between is tier 1.
+func (s *Screen) updateTier(t time.Time) {
+	switch {
+	case t.Before(s.hypeUntil):
+		s.backdrop.SetTier(3)
+	case !s.lastChatEvent.IsZero() && t.Sub(s.lastChatEvent) > 30*time.Second:
+		s.backdrop.SetTier(0)
+	default:
+		s.backdrop.SetTier(1)
+	}
 }
 
 // handleRoomEvent applies a broker event to the local channel mirror so the

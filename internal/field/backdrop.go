@@ -60,6 +60,13 @@ func (b *Backdrop) Tick(t time.Time) { b.engine.Tick(t) }
 // message arrivals, navigation events).
 func (b *Backdrop) Pulse(amount float64) { b.engine.Pulse(amount) }
 
+// SetTier moves the underlying engine into one of five intensity tiers.
+// See Engine.SetTier for the tier semantics.
+func (b *Backdrop) SetTier(t int) { b.engine.SetTier(t) }
+
+// Tier returns the current intensity tier.
+func (b *Backdrop) Tier() int { return b.engine.Tier() }
+
 // SetCursor records cursor cell coords from MouseMsg.
 func (b *Backdrop) SetCursor(x, y float64) { b.engine.SetCursor(x, y) }
 

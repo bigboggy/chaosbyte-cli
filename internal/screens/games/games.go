@@ -89,6 +89,11 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case field.TickMsg:
 		s.backdrop.Tick(time.Time(m))
+		if s.state == statePlayBricks {
+			s.backdrop.SetTier(4)
+		} else {
+			s.backdrop.SetTier(1)
+		}
 		return s, field.TickCmd()
 	case tea.MouseMsg:
 		s.backdrop.SetCursor(float64(m.X), float64(m.Y))

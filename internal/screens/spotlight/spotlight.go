@@ -100,6 +100,14 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 			s.backdrop.Pulse(0.8)
 		}
 		s.syncForegroundTitle()
+		switch {
+		case s.engine.IsPresenting():
+			s.backdrop.SetTier(2)
+		case s.engine.IsTransition():
+			s.backdrop.SetTier(1)
+		default:
+			s.backdrop.SetTier(2)
+		}
 		return s, field.TickCmd()
 	case tea.MouseMsg:
 		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
