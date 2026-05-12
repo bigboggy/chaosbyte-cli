@@ -1,6 +1,6 @@
-// Package spotlight features a single project, rotated every five minutes,
-// with a live discussion chat below. Rotation is computed from wall-clock so
-// no persistent state is needed.
+// Package spotlight features one project at a time. The engine cycles items
+// through presenting → transition → opt-in → next, with the title rendered
+// by the field engine so it cascades on entry and on cursor hover.
 package spotlight
 
 import (
@@ -26,6 +26,8 @@ type Screen struct {
 	inputActive bool
 
 	backdrop *field.Backdrop
+	engine   *Engine
+	fgIdx    int // index whose title is currently registered as foreground; -1 sentinel
 }
 
 func New() *Screen {
@@ -35,11 +37,14 @@ func New() *Screen {
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
 	ta.SetHeight(3)
+	items := seedSpotlights()
 	return &Screen{
-		items:    seedSpotlights(),
+		items:    items,
 		chat:     seedChat(),
 		input:    ta,
 		backdrop: field.NewBackdrop(),
+		engine:   NewEngine(len(items)),
+		fgIdx:    -1,
 	}
 }
 
@@ -49,10 +54,16 @@ func (s *Screen) Name() string  { return screens.SpotlightID }
 func (s *Screen) Title() string { return "spotlight" }
 
 func (s *Screen) HeaderContext() string {
-	_, secs := s.rotation()
 	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render(" · ")
-	return lipgloss.NewStyle().Foreground(theme.Accent).Render("LIVE") + sep +
-		lipgloss.NewStyle().Foreground(theme.Muted).Render("next in "+mmss(secs))
+	stateLabel := "LIVE"
+	if s.engine.IsOptIn() {
+		stateLabel = "QUEUED"
+	} else if s.engine.IsTransition() {
+		stateLabel = "—"
+	}
+	remaining := int(s.engine.Remaining().Seconds())
+	return lipgloss.NewStyle().Foreground(theme.Accent).Render(stateLabel) + sep +
+		lipgloss.NewStyle().Foreground(theme.Muted).Render("next in "+mmss(remaining))
 }
 
 func (s *Screen) Footer() []screens.KeyHint {
@@ -61,8 +72,13 @@ func (s *Screen) Footer() []screens.KeyHint {
 			{Key: "enter", Desc: "send"}, {Key: "ctrl+enter", Desc: "newline"}, {Key: "esc", Desc: "cancel"},
 		}
 	}
+	if s.engine.IsOptIn() {
+		return []screens.KeyHint{
+			{Key: "enter", Desc: "dive in"}, {Key: "n", Desc: "skip"}, {Key: "i", Desc: "chat"}, {Key: "esc", Desc: "lobby"},
+		}
+	}
 	return []screens.KeyHint{
-		{Key: "i", Desc: "chat"}, {Key: "j/k", Desc: "scroll"}, {Key: "o", Desc: "open repo"}, {Key: "esc", Desc: "lobby"},
+		{Key: "i", Desc: "chat"}, {Key: "j/k", Desc: "scroll"}, {Key: "n", Desc: "next"}, {Key: "o", Desc: "open repo"}, {Key: "esc", Desc: "lobby"},
 	}
 }
 
@@ -71,7 +87,12 @@ func (s *Screen) InputFocused() bool { return s.inputActive }
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case field.TickMsg:
-		s.backdrop.Tick(time.Time(m))
+		now := time.Time(m)
+		s.backdrop.Tick(now)
+		if entered := s.engine.Tick(now); entered {
+			s.backdrop.Pulse(0.8)
+		}
+		s.syncForegroundTitle()
 		return s, field.TickCmd()
 	case tea.MouseMsg:
 		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
@@ -84,6 +105,22 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		return s.updateNormal(m)
 	}
 	return s, nil
+}
+
+// syncForegroundTitle registers the current item's title as a field
+// foreground line whenever the index changes. SetForegroundLines resets per
+// cell flap state so we only call it on actual changes; the pulse fires once
+// per entry inside Update.
+func (s *Screen) syncForegroundTitle() {
+	idx := s.engine.Index()
+	if idx == s.fgIdx || idx >= len(s.items) {
+		return
+	}
+	s.fgIdx = idx
+	sp := s.items[idx]
+	s.backdrop.SetForegroundLines([]field.Line{
+		{Row: 0, Text: "spotlight · " + sp.Project},
+	})
 }
 
 func (s *Screen) updateNormal(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
@@ -102,11 +139,21 @@ func (s *Screen) updateNormal(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
 		s.inputActive = true
 		s.input.Focus()
 		return s, textarea.Blink
-	case "o", "enter":
-		idx, _ := s.rotation()
-		if idx < len(s.items) {
+	case "enter":
+		if s.engine.Accept() {
+			s.backdrop.Pulse(0.8)
+			return s, nil
+		}
+		if idx := s.engine.Index(); idx < len(s.items) {
 			return s, screens.OpenURL(s.items[idx].RepoURL)
 		}
+	case "o":
+		if idx := s.engine.Index(); idx < len(s.items) {
+			return s, screens.OpenURL(s.items[idx].RepoURL)
+		}
+	case "n":
+		s.engine.Skip()
+		return s, screens.Flash("skipped")
 	}
 	return s, nil
 }
@@ -149,25 +196,36 @@ func (s *Screen) View(width, height int) string {
 	w := ui.FeedShellWidth(width)
 	contentW := w - 2
 
-	idx, secs := s.rotation()
+	idx := s.engine.Index()
 	if idx >= len(s.items) {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
 			theme.Status.Render("no spotlight scheduled"))
 	}
 	sp := s.items[idx]
 
-	title := theme.Title.Render("spotlight · " + sp.Project)
-	rotateNote := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
-		Render(fmt.Sprintf("next rotation in %s · %d/%d", mmss(secs), idx+1, len(s.items)))
+	// Row 0 is reserved as a blank slot in content rows so the field's
+	// foreground title shows through. Row 1 carries the engine status copy.
+	statusLine := s.renderStatusLine(sp, contentW)
 
-	card := renderCard(sp, contentW)
-	cardH := lipgloss.Height(card)
+	var card string
+	cardH := 0
+	if !s.engine.IsTransition() {
+		card = renderCard(sp, contentW)
+		cardH = lipgloss.Height(card)
+	}
+
+	var optIn string
+	optInH := 0
+	if s.engine.IsOptIn() {
+		optIn = renderOptInPanel(sp, s.engine.OptInProgress(), contentW)
+		optInH = lipgloss.Height(optIn) + 1
+	}
 
 	inputH := 3
 	if s.inputActive {
 		inputH = 5
 	}
-	chatH := height - cardH - inputH - 6
+	chatH := height - cardH - inputH - optInH - 6
 	if chatH < 4 {
 		chatH = 4
 	}
@@ -179,19 +237,64 @@ func (s *Screen) View(width, height int) string {
 		s.input.SetWidth(contentW - 2)
 		s.input.SetHeight(3)
 		input = s.input.View()
+	} else if s.engine.IsOptIn() {
+		input = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
+			Render("press enter to dive in · n to skip · i to chat")
 	} else {
 		input = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
-			Render("press i to join the discussion · j/k scroll · o open repo")
+			Render("press i to join the discussion · j/k scroll · o open repo · n next")
 	}
 
-	stacked := lipgloss.JoinVertical(lipgloss.Left,
-		title, rotateNote, "", card,
+	parts := []string{
+		"", // row 0 — field-rendered title cascades here
+		statusLine,
+		"",
+	}
+	if card != "" {
+		parts = append(parts, card)
+	}
+	parts = append(parts,
 		ui.Divider(contentW),
 		chat,
 		ui.Divider(contentW),
-		input,
 	)
-	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
+	if optIn != "" {
+		parts = append(parts, optIn)
+	}
+	parts = append(parts, input)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	contentRows := strings.Split(content, "\n")
+	if len(contentRows) < height {
+		pad := make([]string, height-len(contentRows))
+		contentRows = append(contentRows, pad...)
+	} else if len(contentRows) > height {
+		contentRows = contentRows[:height]
+	}
+
+	fieldRows := strings.Split(s.backdrop.Render(contentW, height), "\n")
+	composed := field.Composite(contentRows, fieldRows, height)
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, composed)
+}
+
+func (s *Screen) renderStatusLine(sp Spotlight, width int) string {
+	count := len(s.items)
+	if count == 0 {
+		count = 1
+	}
+	pos := fmt.Sprintf("%d/%d", s.engine.Index()+1, count)
+	remaining := mmss(int(s.engine.Remaining().Seconds()))
+
+	switch {
+	case s.engine.IsOptIn():
+		return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+			Render(fmt.Sprintf("queued · %s · 15s window · %s", sp.Project, pos))
+	case s.engine.IsTransition():
+		return lipgloss.NewStyle().Foreground(theme.Muted).
+			Render("…")
+	}
+	return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+		Render(fmt.Sprintf("on stage · %s remaining · %s", remaining, pos))
 }
 
 func renderCard(sp Spotlight, width int) string {
@@ -222,6 +325,40 @@ func renderCard(sp Spotlight, width int) string {
 		Padding(0, 2).
 		Width(innerW).
 		Render(content)
+}
+
+// renderOptInPanel is the per-frame "next up · 15s countdown" block shown
+// during the opt-in window. progress is 0..1 across the window.
+func renderOptInPanel(sp Spotlight, progress float64, width int) string {
+	innerW := width - 4
+	barW := innerW - 8
+	if barW < 8 {
+		barW = 8
+	}
+	filled := int(float64(barW) * progress)
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > barW {
+		filled = barW
+	}
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barW-filled)
+	barStyled := lipgloss.NewStyle().Foreground(theme.Accent).Render(bar)
+
+	head := lipgloss.NewStyle().Foreground(theme.Warn).Bold(true).Render("next up")
+	name := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render(sp.Project)
+	by := lipgloss.NewStyle().Foreground(theme.Muted).Render("by " + sp.Author)
+	tag := lipgloss.NewStyle().Foreground(theme.Accent).Render(fmt.Sprintf("[%s]", sp.Language))
+
+	row1 := fmt.Sprintf("%s  %s  %s  %s", head, name, tag, by)
+	row2 := lipgloss.NewStyle().Foreground(theme.Fg).Render(ui.Truncate(sp.Description, innerW))
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Warn).
+		Padding(0, 2).
+		Width(innerW).
+		Render(lipgloss.JoinVertical(lipgloss.Left, row1, row2, "", barStyled))
 }
 
 func (s *Screen) renderChat(width, height int) string {
@@ -258,7 +395,5 @@ func (s *Screen) renderChat(width, height int) string {
 		pad := make([]string, bodyH-len(chatRows))
 		chatRows = append(pad, chatRows...)
 	}
-	fieldRows := strings.Split(s.backdrop.Render(width, bodyH), "\n")
-	visible := field.Composite(chatRows, fieldRows, bodyH)
-	return lipgloss.JoinVertical(lipgloss.Left, title, visible)
+	return lipgloss.JoinVertical(lipgloss.Left, title, strings.Join(chatRows, "\n"))
 }

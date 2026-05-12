@@ -1,26 +1,8 @@
 package spotlight
 
-import (
-	"fmt"
-	"time"
-)
+import "fmt"
 
-// RotateSeconds is how long each spotlight stays featured. Rotation is a pure
-// function of wall-clock time so it stays consistent across renders.
-const RotateSeconds = 300
-
-// rotation returns the active spotlight index and seconds remaining until the
-// next rotation.
-func (s *Screen) rotation() (idx, secsRemaining int) {
-	if len(s.items) == 0 {
-		return 0, RotateSeconds
-	}
-	secs := time.Now().Unix()
-	idx = int((secs / RotateSeconds) % int64(len(s.items)))
-	secsRemaining = RotateSeconds - int(secs%RotateSeconds)
-	return idx, secsRemaining
-}
-
+// mmss formats a seconds count as "M:SS" for the header / status line.
 func mmss(secs int) string {
 	if secs < 0 {
 		secs = 0
