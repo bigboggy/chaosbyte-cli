@@ -1,0 +1,127 @@
+package lobby
+
+import (
+	"strings"
+	"time"
+
+	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/bchayka/gitstatus/internal/typo"
+	"github.com/bchayka/gitstatus/internal/ui"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// arrivalWindow is how long after a message's At timestamp the entry macro
+// keeps animating. After this, the message renders fully revealed.
+const arrivalWindow = 3 * time.Second
+
+// renderChatLineAnim is the typo-based replacement for ui.RenderChatLine.
+// Builds the static prefix (timestamp + nick) once, types the body in via
+// the typo Greet macro for messages still inside the arrival window.
+//
+// Returns one or more rendered rows; the caller stacks them in scrollback.
+func renderChatLineAnim(msg ui.ChatMessage, width int, now time.Time) []string {
+	prefix, prefixWidth, bodyStyle := chatPrefix(msg)
+	bodyText := bodyForKind(msg)
+	bodyWidth := width - prefixWidth - 1
+	if bodyWidth < 12 {
+		bodyWidth = 12
+	}
+
+	layout := typo.Prepare(msgKey(msg), bodyText, bodyWidth)
+	layout.BaseStyle = bodyStyle
+
+	state := typo.NewState()
+	elapsed := now.Sub(msg.At)
+	if elapsed >= 0 && elapsed < arrivalWindow {
+		macro := macroForKind(msg.Kind)
+		macro(&state, layout, elapsed, now)
+	} else {
+		// Outside arrival window: fully revealed, no animation.
+		state.Reveal = 1.0
+	}
+
+	bodyRows := typo.Render(layout, &state, now)
+	if len(bodyRows) == 0 {
+		return []string{prefix}
+	}
+
+	pad := strings.Repeat(" ", prefixWidth+1)
+	out := make([]string, len(bodyRows))
+	for i, row := range bodyRows {
+		if i == 0 {
+			out[i] = prefix + " " + row
+		} else {
+			out[i] = pad + row
+		}
+	}
+	return out
+}
+
+// chatPrefix returns the styled "12:34 <nick>" prefix plus its rendered
+// width and the body style appropriate for the message kind.
+func chatPrefix(msg ui.ChatMessage) (string, int, lipgloss.Style) {
+	ts := theme.CommitTime.Render(ui.HumanizeTime(msg.At))
+	var marker string
+	var bodyStyle lipgloss.Style
+	switch msg.Kind {
+	case ui.ChatJoin:
+		marker = lipgloss.NewStyle().Foreground(theme.OK).Bold(true).Render("-->")
+		bodyStyle = lipgloss.NewStyle().Foreground(theme.OK).Italic(true)
+	case ui.ChatSystem:
+		marker = lipgloss.NewStyle().Foreground(theme.Muted).Render("*")
+		bodyStyle = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+	case ui.ChatAction:
+		marker = lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render("*")
+		bodyStyle = lipgloss.NewStyle().Foreground(theme.Accent2).Italic(true)
+	default:
+		nick := strings.TrimPrefix(msg.Author, "@")
+		marker = lipgloss.NewStyle().Foreground(ui.NickColor(nick)).Render("<" + nick + ">")
+		bodyStyle = lipgloss.NewStyle().Foreground(theme.Fg)
+	}
+	prefix := ts + " " + marker
+	return prefix, lipgloss.Width(prefix), bodyStyle
+}
+
+// bodyForKind handles kinds where the visible body needs the Author prepended
+// (joins say "@nick entered the chat", actions say "@nick shrugs", etc.).
+func bodyForKind(msg ui.ChatMessage) string {
+	switch msg.Kind {
+	case ui.ChatJoin, ui.ChatAction:
+		if msg.Author != "" {
+			return msg.Author + " " + msg.Body
+		}
+	}
+	return msg.Body
+}
+
+// macroForKind picks the entry animation for each chat kind. Future per-user
+// UserStyle overrides this (#42).
+func macroForKind(kind ui.ChatKind) typo.Macro {
+	switch kind {
+	case ui.ChatAction:
+		// /me actions and mod posts: scramble briefly before settling.
+		return typo.Settle()
+	case ui.ChatJoin:
+		// Joins arrive with a soft Type — slower than chat.
+		return typoTypeAt(60)
+	case ui.ChatSystem:
+		return typoTypeAt(15) // system lines feel fast/programmatic
+	default:
+		return typo.Greet()
+	}
+}
+
+// typoTypeAt wraps typo.Type with a custom per-char speed.
+func typoTypeAt(perCharMs int) typo.Macro {
+	return func(state *typo.AnimationState, layout *typo.Layout, elapsed time.Duration, now time.Time) bool {
+		typo.Type(state, layout, elapsed, perCharMs)
+		total := time.Duration(len(layout.Cells)) * time.Duration(perCharMs) * time.Millisecond
+		return elapsed >= total
+	}
+}
+
+// msgKey is a stable layout-cache key derived from the message's content
+// and timestamp. Used as Layout.ID.
+func msgKey(msg ui.ChatMessage) string {
+	return msg.Author + "@" + msg.At.UTC().Format(time.RFC3339Nano)
+}

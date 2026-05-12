@@ -480,9 +480,10 @@ func (s *Screen) View(width, height int) string {
 		chatH = 4
 	}
 
+	now := time.Now()
 	var lines []string
 	for _, msg := range ch.Messages {
-		lines = append(lines, ui.RenderChatLine(msg, contentW)...)
+		lines = append(lines, renderChatLineAnim(msg, contentW, now)...)
 	}
 	chatRows := scrollbackRows(lines, chatH, s.chatScroll)
 	fieldRows := strings.Split(s.backdrop.Render(contentW, chatH), "\n")
