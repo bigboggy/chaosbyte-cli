@@ -259,6 +259,11 @@ type Engine struct {
 	// engine renders them on top of the field for cascade.Decay seconds
 	// after BornAt, then drops them on the next Tick.
 	cascades []CascadeLine
+
+	// lastWall is the wall-clock time of the last Tick; used to advance
+	// virtual time only while the engine is active so tier 0 is truly
+	// frozen rather than just visually identical.
+	lastWall time.Time
 }
 
 // CascadeLine is a foreground text overlay with a built-in lifespan. Unlike
@@ -450,10 +455,24 @@ func (e *Engine) expireCascades(now time.Time) {
 	}
 }
 
-// Tick advances the engine's state one frame. Call before Render.
+// Tick advances the engine's state one frame. Call before Render. At tier 0
+// with a fully decayed motion accumulator we hold timeMs steady so the
+// value-noise warp stops sliding and the field freezes. Any trigger that
+// raises tier or pulses ot brings the animation back.
 func (e *Engine) Tick(now time.Time) {
 	e.expireCascades(now)
-	e.timeMs = float64(now.Sub(e.startedAt).Milliseconds())
+	wasActive := e.tier > 0 || e.ot > 0.05
+	if e.lastWall.IsZero() {
+		e.lastWall = now
+	}
+	if wasActive {
+		delta := now.Sub(e.lastWall)
+		if delta < 0 {
+			delta = 0
+		}
+		e.timeMs += float64(delta.Milliseconds())
+	}
+	e.lastWall = now
 	e.frame++
 
 	dx := e.cursorX - e.prevX
@@ -575,6 +594,14 @@ type fgCell struct {
 
 // Render produces the current frame as a styled multi-line string. Cell
 // styling is batched per same-style run within each row.
+// quiet reports whether the engine should render a fully static field this
+// frame: tier 0 plus a drained motion accumulator. Foreground cascades and
+// persistent lines still draw, but the underlying noise grid is replaced
+// with spaces so the room reads as silent.
+func (e *Engine) quiet() bool {
+	return e.tier == 0 && e.ot < 0.05
+}
+
 func (e *Engine) Render() string {
 	if e.width == 0 || e.height == 0 {
 		return ""
@@ -650,6 +677,9 @@ func (e *Engine) Render() string {
 			if cell, ok := fgGrid[[2]int{x, y}]; ok {
 				stID = styleFg
 				ch = cell.ch
+			} else if e.quiet() {
+				ch = ' '
+				stID = styleBase
 			} else {
 				cx := (float64(x)-float64(cols)/2)*scaleX + 0.5
 				cy := (float64(y)-float64(rows)/2)*scaleY + 0.5

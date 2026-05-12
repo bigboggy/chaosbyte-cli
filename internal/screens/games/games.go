@@ -99,7 +99,7 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		if s.state == statePlayBricks {
 			s.backdrop.SetTier(4)
 		} else {
-			s.backdrop.SetTier(1)
+			s.backdrop.SetTier(0)
 		}
 		return s, field.TickCmd()
 	case tea.MouseMsg:
