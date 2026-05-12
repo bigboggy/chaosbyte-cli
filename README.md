@@ -17,6 +17,22 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
 
 ---
 
+## Install
+
+One-liner (Linux / macOS):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bchayka/gitstatus/main/install.sh | bash
+```
+
+Uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bchayka/gitstatus/main/install.sh | bash -s -- --uninstall
+```
+
+---
+
 ## Quick start
 
 ```bash
