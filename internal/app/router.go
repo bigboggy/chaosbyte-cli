@@ -59,7 +59,11 @@ func (a *App) navigate(target string) tea.Cmd {
 			lob.EnsureJoined()
 		}
 	}
-	return nil
+	// Re-initialise the activated screen so screens that drive their own
+	// ticks (intro, ambient) can schedule a fresh tick chain. App.Init only
+	// runs once at program start; without this hook a screen with its own
+	// tick stays dormant after a re-entry.
+	return a.screens[target].Init()
 }
 
 // handleKey runs global key bindings (esc → lobby, ctrl+c → quit, q → lobby)
