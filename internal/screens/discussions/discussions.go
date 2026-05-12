@@ -14,7 +14,10 @@ package discussions
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -53,6 +56,8 @@ type Screen struct {
 	branchPickerIdx int
 
 	width, height int
+
+	backdrop *field.Backdrop
 }
 
 func New() *Screen {
@@ -74,10 +79,11 @@ func New() *Screen {
 		branches:     seedBranches(),
 		commitInput:  ci,
 		commentInput: cm,
+		backdrop:     field.NewBackdrop(),
 	}
 }
 
-func (s *Screen) Init() tea.Cmd { return textarea.Blink }
+func (s *Screen) Init() tea.Cmd { return tea.Batch(textarea.Blink, field.TickCmd()) }
 
 func (s *Screen) Name() string  { return screens.DiscussionsID }
 func (s *Screen) Title() string { return "discussions" }
@@ -143,10 +149,19 @@ func (s *Screen) BackOut() bool {
 // ---------------------------------------------------------------------------
 
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
+	switch m := msg.(type) {
+	case field.TickMsg:
+		s.backdrop.Tick(time.Time(m))
+		return s, field.TickCmd()
+	case tea.MouseMsg:
+		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
+		return s, nil
+	}
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return s, nil
 	}
+	s.backdrop.Pulse(0.04)
 	switch s.mode {
 	case modeCompose:
 		return s.updateCompose(km)
@@ -278,7 +293,14 @@ func (s *Screen) renderMain(termW, bodyH int) string {
 		feedH = 4
 	}
 	feed := s.renderFeed(contentW, feedH)
+	feedRows := strings.Split(feed, "\n")
+	if len(feedRows) < feedH {
+		pad := make([]string, feedH-len(feedRows))
+		feedRows = append(feedRows, pad...)
+	}
+	fieldRows := strings.Split(s.backdrop.Render(contentW, feedH), "\n")
+	composed := field.Composite(feedRows, fieldRows, feedH)
 
-	col := lipgloss.JoinVertical(lipgloss.Left, tabs, "", feed)
+	col := lipgloss.JoinVertical(lipgloss.Left, tabs, "", composed)
 	return lipgloss.Place(termW, bodyH, lipgloss.Left, lipgloss.Top, col)
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -23,6 +24,8 @@ type Screen struct {
 
 	input       textarea.Model
 	inputActive bool
+
+	backdrop *field.Backdrop
 }
 
 func New() *Screen {
@@ -33,13 +36,14 @@ func New() *Screen {
 	ta.CharLimit = 0
 	ta.SetHeight(3)
 	return &Screen{
-		items: seedSpotlights(),
-		chat:  seedChat(),
-		input: ta,
+		items:    seedSpotlights(),
+		chat:     seedChat(),
+		input:    ta,
+		backdrop: field.NewBackdrop(),
 	}
 }
 
-func (s *Screen) Init() tea.Cmd { return nil }
+func (s *Screen) Init() tea.Cmd { return field.TickCmd() }
 
 func (s *Screen) Name() string  { return screens.SpotlightID }
 func (s *Screen) Title() string { return "spotlight" }
@@ -65,14 +69,21 @@ func (s *Screen) Footer() []screens.KeyHint {
 func (s *Screen) InputFocused() bool { return s.inputActive }
 
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
-	km, ok := msg.(tea.KeyMsg)
-	if !ok {
+	switch m := msg.(type) {
+	case field.TickMsg:
+		s.backdrop.Tick(time.Time(m))
+		return s, field.TickCmd()
+	case tea.MouseMsg:
+		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
 		return s, nil
+	case tea.KeyMsg:
+		s.backdrop.Pulse(0.04)
+		if s.inputActive {
+			return s.updateCompose(m)
+		}
+		return s.updateNormal(m)
 	}
-	if s.inputActive {
-		return s.updateCompose(km)
-	}
-	return s.updateNormal(km)
+	return s, nil
 }
 
 func (s *Screen) updateNormal(km tea.KeyMsg) (screens.Screen, tea.Cmd) {
@@ -215,11 +226,16 @@ func renderCard(sp Spotlight, width int) string {
 
 func (s *Screen) renderChat(width, height int) string {
 	title := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("live discussion")
+	bodyH := height - 1
+	if bodyH < 1 {
+		bodyH = 1
+	}
+
 	var lines []string
 	for _, msg := range s.chat {
 		lines = append(lines, ui.RenderChatLine(msg, width)...)
 	}
-	maxScroll := len(lines) - (height - 1)
+	maxScroll := len(lines) - bodyH
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
@@ -227,7 +243,7 @@ func (s *Screen) renderChat(width, height int) string {
 		s.chatScroll = maxScroll
 	}
 	end := len(lines) - s.chatScroll
-	start := end - (height - 1)
+	start := end - bodyH
 	if start < 0 {
 		start = 0
 	}
@@ -237,7 +253,12 @@ func (s *Screen) renderChat(width, height int) string {
 	if end < start {
 		end = start
 	}
-	visible := strings.Join(lines[start:end], "\n")
-	visible = ui.PadToHeight(visible, height-1)
+	chatRows := lines[start:end]
+	if len(chatRows) < bodyH {
+		pad := make([]string, bodyH-len(chatRows))
+		chatRows = append(pad, chatRows...)
+	}
+	fieldRows := strings.Split(s.backdrop.Render(width, bodyH), "\n")
+	visible := field.Composite(chatRows, fieldRows, bodyH)
 	return lipgloss.JoinVertical(lipgloss.Left, title, visible)
 }

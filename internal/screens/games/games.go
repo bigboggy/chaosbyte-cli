@@ -5,7 +5,9 @@ package games
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -25,16 +27,19 @@ type Screen struct {
 	idx   int
 	state state
 	bug   bugHunterState
+
+	backdrop *field.Backdrop
 }
 
 func New() *Screen {
 	return &Screen{
-		games: seedGames(),
-		bug:   newBugHunter(),
+		games:    seedGames(),
+		bug:      newBugHunter(),
+		backdrop: field.NewBackdrop(),
 	}
 }
 
-func (s *Screen) Init() tea.Cmd { return nil }
+func (s *Screen) Init() tea.Cmd { return field.TickCmd() }
 
 func (s *Screen) Name() string  { return screens.GamesID }
 func (s *Screen) Title() string { return "games" }
@@ -69,10 +74,19 @@ func (s *Screen) BackToList() bool {
 }
 
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
+	switch m := msg.(type) {
+	case field.TickMsg:
+		s.backdrop.Tick(time.Time(m))
+		return s, field.TickCmd()
+	case tea.MouseMsg:
+		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
+		return s, nil
+	}
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return s, nil
 	}
+	s.backdrop.Pulse(0.04)
 	switch s.state {
 	case stateList:
 		return s.updateList(km)
@@ -132,7 +146,17 @@ func (s *Screen) renderList(width, height int) string {
 	for i, g := range s.games {
 		rows = append(rows, renderGameRow(g, contentW, i == s.idx))
 	}
-	stacked := lipgloss.JoinVertical(lipgloss.Left, title, subtitle, "", strings.Join(rows, "\n"))
+	bodyH := height - 4
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	if len(rows) < bodyH {
+		pad := make([]string, bodyH-len(rows))
+		rows = append(rows, pad...)
+	}
+	fieldRows := strings.Split(s.backdrop.Render(contentW, bodyH), "\n")
+	composed := field.Composite(rows, fieldRows, bodyH)
+	stacked := lipgloss.JoinVertical(lipgloss.Left, title, subtitle, "", composed)
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 

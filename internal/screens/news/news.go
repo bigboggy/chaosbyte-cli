@@ -5,7 +5,9 @@ package news
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -17,11 +19,13 @@ type Screen struct {
 	items  []Item
 	idx    int
 	scroll int
+
+	backdrop *field.Backdrop
 }
 
-func New() *Screen { return &Screen{items: seedItems()} }
+func New() *Screen { return &Screen{items: seedItems(), backdrop: field.NewBackdrop()} }
 
-func (s *Screen) Init() tea.Cmd { return nil }
+func (s *Screen) Init() tea.Cmd { return field.TickCmd() }
 
 func (s *Screen) Name() string  { return screens.NewsID }
 func (s *Screen) Title() string { return "news" }
@@ -43,10 +47,19 @@ func (s *Screen) Footer() []screens.KeyHint {
 func (s *Screen) InputFocused() bool { return false }
 
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
+	switch m := msg.(type) {
+	case field.TickMsg:
+		s.backdrop.Tick(time.Time(m))
+		return s, field.TickCmd()
+	case tea.MouseMsg:
+		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
+		return s, nil
+	}
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return s, nil
 	}
+	s.backdrop.Pulse(0.04)
 	switch km.String() {
 	case "j", "down":
 		if s.idx < len(s.items)-1 {
@@ -106,6 +119,17 @@ func (s *Screen) View(width, height int) string {
 		cards = append(cards, renderCard(s.items[i], contentW, i == s.idx))
 	}
 	body := strings.Join(cards, "\n")
+	bodyRows := strings.Split(body, "\n")
+	bodyHActual := bodyH - 4
+	if bodyHActual < 1 {
+		bodyHActual = 1
+	}
+	if len(bodyRows) < bodyHActual {
+		pad := make([]string, bodyHActual-len(bodyRows))
+		bodyRows = append(bodyRows, pad...)
+	}
+	fieldRows := strings.Split(s.backdrop.Render(contentW, bodyHActual), "\n")
+	composed := field.Composite(bodyRows, fieldRows, bodyHActual)
 
 	indicator := ""
 	if len(s.items) > visibleCount {
@@ -118,7 +142,7 @@ func (s *Screen) View(width, height int) string {
 	}
 
 	stacked := lipgloss.JoinVertical(lipgloss.Left,
-		title, subtitle, indicator, "", body,
+		title, subtitle, indicator, "", composed,
 	)
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }

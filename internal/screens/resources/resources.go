@@ -5,7 +5,9 @@ package resources
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -31,6 +33,8 @@ type Screen struct {
 	trending []Skill
 	top      []Skill
 	repos    []Repo
+
+	backdrop *field.Backdrop
 }
 
 func New() *Screen {
@@ -38,10 +42,11 @@ func New() *Screen {
 		trending: seedTrending(),
 		top:      seedTop(),
 		repos:    seedRepos(),
+		backdrop: field.NewBackdrop(),
 	}
 }
 
-func (s *Screen) Init() tea.Cmd { return nil }
+func (s *Screen) Init() tea.Cmd { return field.TickCmd() }
 
 func (s *Screen) Name() string  { return screens.ResourcesID }
 func (s *Screen) Title() string { return "resources" }
@@ -65,10 +70,19 @@ func (s *Screen) Footer() []screens.KeyHint {
 func (s *Screen) InputFocused() bool { return s.queryActive }
 
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
+	switch m := msg.(type) {
+	case field.TickMsg:
+		s.backdrop.Tick(time.Time(m))
+		return s, field.TickCmd()
+	case tea.MouseMsg:
+		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
+		return s, nil
+	}
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return s, nil
 	}
+	s.backdrop.Pulse(0.04)
 	if s.queryActive {
 		return s.updateSearch(km)
 	}
@@ -196,7 +210,19 @@ func (s *Screen) View(width, height int) string {
 		body = s.renderSearch(contentW)
 	}
 
-	stacked := lipgloss.JoinVertical(lipgloss.Left, title, "", tabsRow, "", body)
+	bodyRows := strings.Split(body, "\n")
+	bodyH := height - 5
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	if len(bodyRows) < bodyH {
+		pad := make([]string, bodyH-len(bodyRows))
+		bodyRows = append(bodyRows, pad...)
+	}
+	fieldRows := strings.Split(s.backdrop.Render(contentW, bodyH), "\n")
+	composed := field.Composite(bodyRows, fieldRows, bodyH)
+
+	stacked := lipgloss.JoinVertical(lipgloss.Left, title, "", tabsRow, "", composed)
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
