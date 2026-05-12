@@ -463,7 +463,7 @@ func (s *Screen) EnsureJoined() {
 func (s *Screen) OnEnter() {
 	s.backdrop.AddCascade(field.CascadeLine{
 		Row:   0,
-		Text:  s.nick + " · welcome to chaosbyte",
+		Text:  s.nick + " · the workshop is open",
 		Decay: 5 * time.Second,
 	})
 }

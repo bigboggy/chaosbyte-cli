@@ -22,11 +22,11 @@ func seedChannels() []Channel {
 	h := func(d time.Duration) time.Time { return now.Add(-d) }
 	return []Channel{
 		{
-			Name: "#lobby", Topic: "main hall · be excellent · /help for commands",
+			Name: "#lobby", Topic: "the workshop · where most of us are most of the time",
 			Members: 4218, Online: 612,
 			Messages: []ui.ChatMessage{
-				{Author: "server", Body: "MOTD: welcome to chaosbyte — type /help to see what you can do", At: h(2 * time.Hour), Kind: ui.ChatSystem},
-				{Author: "server", Body: "topic: main hall · be excellent · /help for commands", At: h(2 * time.Hour), Kind: ui.ChatSystem},
+				{Author: "server", Body: "the workshop is open. :help when you need it. :leave when you go.", At: h(2 * time.Hour), Kind: ui.ChatSystem},
+				{Author: "server", Body: "tonight in the spotlight: tinytty, by rin. a 4kb terminal renderer. :read to open.", At: h(2 * time.Hour), Kind: ui.ChatSystem},
 				{Author: "@yamlhater", Body: "joined the lobby", At: h(48 * time.Minute), Kind: ui.ChatJoin},
 				{Author: "@yamlhater", Body: "anyone else's CI just decide today was the day to be slow", At: h(38 * time.Minute), Kind: ui.ChatNormal},
 				{Author: "@nullpointer", Body: "ours is just printing fortune cookies now. devops did it.", At: h(36 * time.Minute), Kind: ui.ChatNormal},

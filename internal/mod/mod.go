@@ -54,7 +54,7 @@ func defaultPrompts() []string {
 
 // Welcome returns the mod's greeting for a newly-joined nick.
 func (m *Mod) Welcome(nick string) string {
-	return "welcome to chaosbyte, " + nick + " · the field is alive when you move"
+	return "welcome, " + nick + ". the workshop is yours for as long as you like."
 }
 
 // NoteChat resets the idle clock — call this whenever a user or system
