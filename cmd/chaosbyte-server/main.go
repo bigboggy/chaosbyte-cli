@@ -15,8 +15,9 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/app"
 	"github.com/bchayka/gitstatus/internal/config"
-	"github.com/bchayka/gitstatus/internal/room"
+	"github.com/bchayka/gitstatus/internal/platform"
 	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/ssh"
@@ -32,14 +33,15 @@ func main() {
 	keyPath := flag.String("hostkey", ".ssh/chaosbyte_ed25519", "SSH host key path (auto-generated if missing)")
 	flag.Parse()
 
-	broker := room.New()
-	defer broker.Stop()
+	registry := platform.NewRegistry()
+	registry.Register(demoAcmeConfig())
+	defer registry.Stop()
 
 	srv, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort(*host, *port)),
 		wish.WithHostKeyPath(*keyPath),
 		wish.WithMiddleware(
-			bm.Middleware(handlerFor(broker)),
+			bm.Middleware(handlerFor(registry)),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -68,33 +70,76 @@ func main() {
 	}
 }
 
-func handlerFor(broker *room.Broker) bm.Handler {
-	// The flagship runs the DefaultChaosbyte config for every SSH session.
-	// The platform's multi-tenant routing lands in the next commit: read
-	// the SSH user, look up that team's config, route to that team's
-	// broker, apply that team's theme.
-	cfg := config.DefaultChaosbyte()
-	theme.Apply(theme.Palette{
-		Bg:       cfg.Theme.Bg,
-		Fg:       cfg.Theme.Fg,
-		Muted:    cfg.Theme.Muted,
-		Accent:   cfg.Theme.Accent,
-		Accent2:  cfg.Theme.Accent2,
-		BorderHi: cfg.Theme.BorderHi,
-		BorderLo: cfg.Theme.BorderLo,
-	})
+// handlerFor returns the Wish bubbletea handler that routes every incoming
+// SSH session to the team the user is asking for. The SSH user (the part
+// before @ in `ssh user@host`) is the team slug. Unknown slugs land on
+// the flagship.
+//
+// Per-session: the team's theme is applied just before the program is
+// returned so the colors match the team. Two simultaneous SSH sessions
+// to different teams therefore call theme.Apply with different palettes;
+// this is fine because each session's renderer reads the package-level
+// theme vars at View time, and Bubbletea's middleware runs the handler
+// once per session before the program starts.
+//
+// (A future revision will move the palette into per-session render state
+// so two teams can run on the same process without theme.Apply races.)
+func handlerFor(reg *platform.Registry) bm.Handler {
 	return func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 		if _, _, active := s.Pty(); !active {
 			wish.Fatalln(s, "chaosbyte requires an interactive terminal")
 			return nil, nil
 		}
-		nick := s.User()
-		if nick == "" {
-			nick = "anonymous"
+		slug := s.User()
+		if slug == "" {
+			slug = "chaosbyte"
 		}
-		return app.New("@"+nick, broker, cfg), []tea.ProgramOption{
+		cfg, broker := reg.Resolve(slug)
+		theme.Apply(theme.Palette{
+			Bg:       cfg.Theme.Bg,
+			Fg:       cfg.Theme.Fg,
+			Muted:    cfg.Theme.Muted,
+			Accent:   cfg.Theme.Accent,
+			Accent2:  cfg.Theme.Accent2,
+			BorderHi: cfg.Theme.BorderHi,
+			BorderLo: cfg.Theme.BorderLo,
+		})
+		nick := "@" + slug
+		return app.New(nick, broker, cfg), []tea.ProgramOption{
 			tea.WithAltScreen(),
 			tea.WithMouseCellMotion(),
 		}
+	}
+}
+
+// demoAcmeConfig is a second registered team that proves the routing
+// works. `ssh acme@chaosbyte.host` lands the user in a different room
+// with a different brand and palette than the flagship. Real teams
+// register through the provisioning surface that lands in a later
+// commit; this one is hardcoded as a smoke test.
+func demoAcmeConfig() config.RoomConfig {
+	return config.RoomConfig{
+		Slug: "acme",
+		Brand: config.BrandConfig{
+			Name:    "acme",
+			MOTD:    "acme team workspace. our shop, our voice.",
+			Tagline: "shipping the thing we said we would.",
+		},
+		Theme: config.ThemeConfig{
+			// A different accent register to show the palette swap. Same
+			// near-black ground; rust-leaning accent instead of phosphor
+			// green. Demonstrates that two teams running side by side can
+			// look distinct without sharing a palette.
+			Accent:  lipgloss.Color("#b87e3d"),
+			Accent2: lipgloss.Color("#c89f5a"),
+		},
+		Mod: config.ModConfig{
+			Welcome: "welcome to acme, {nick}. ship something today.",
+		},
+		Spotlight: config.SpotlightConfig{
+			Name:        "ledger-rs",
+			Author:      "team",
+			Description: "the rewrite that finally goes to prod this week",
+		},
 	}
 }
