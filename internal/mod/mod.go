@@ -49,7 +49,6 @@ func defaultPrompts() []string {
 		"discussions has a take that needs a counter-take · /discussions",
 		"resources lists are sortable · /resources",
 		"type a slash to pull up the command palette",
-		"ambient room is just the engine talking to itself · /ambient",
 	}
 }
 

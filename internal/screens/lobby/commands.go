@@ -27,7 +27,6 @@ var builtins = []command{
 	{"/resources", "open skills & github repos"},
 	{"/games", "open mini-games"},
 	{"/discussions", "open commit feed"},
-	{"/ambient", "open ambient field"},
 	{"/join", "join or switch channel"},
 	{"/leave", "return to #lobby"},
 	{"/list", "list channels"},
@@ -82,8 +81,6 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s, screens.Navigate(screens.GamesID)
 	case "/discussions":
 		return s, screens.Navigate(screens.DiscussionsID)
-	case "/ambient":
-		return s, screens.Navigate(screens.AmbientID)
 	case "/help":
 		return s.cmdHelp()
 	case "/clear":

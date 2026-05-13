@@ -16,7 +16,6 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/screens/ambient"
 	"github.com/bchayka/gitstatus/internal/screens/discussions"
 	"github.com/bchayka/gitstatus/internal/screens/games"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
@@ -61,7 +60,6 @@ func New(nick string, broker *room.Broker) *App {
 			screens.SpotlightID:   spotlight.New(),
 			screens.GamesID:       games.New(broker),
 			screens.DiscussionsID: discussions.New(),
-			screens.AmbientID:     ambient.New(),
 		},
 		current: screens.IntroID,
 	}
