@@ -1,0 +1,39 @@
+# The flagship Chaosbyte room. Loaded automatically by the SSH server when
+# a connection arrives at the chaosbyte slug. Other teams have a similar
+# file under the same directory; each file's slug is the filename minus
+# the .toml extension unless a slug is set explicitly.
+
+slug = "chaosbyte"
+
+[brand]
+name    = "chaosbyte"
+motd    = "the workshop is open. :help when you need it. :leave when you go."
+tagline = "a small room for those who are paying attention."
+
+[theme]
+bg        = "#0a0a0c"
+fg        = "#e6dccb"
+muted     = "#7d7a72"
+accent    = "#7a9a6a"
+accent2   = "#b3962a"
+border_hi = "#25252d"
+border_lo = "#1a1a1f"
+
+[mod]
+nick                  = "@mod"
+welcome               = "welcome, {nick}. the workshop is yours for as long as you like."
+prompt_interval_secs  = 90
+idle_threshold_secs   = 45
+
+[surfaces]
+chat        = true
+spotlight   = true
+games       = true
+skills      = false
+discussions = false
+
+[spotlight]
+name        = "tinytty"
+author      = "rin"
+description = "a 4kb terminal renderer"
+repo_url    = "git.sr.ht/~rin/tinytty"
