@@ -14,13 +14,11 @@ package app
 import (
 	"time"
 
+	"github.com/bchayka/gitstatus/internal/config"
+	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/screens/discussions"
-	"github.com/bchayka/gitstatus/internal/screens/games"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
 	"github.com/bchayka/gitstatus/internal/screens/lobby"
-	"github.com/bchayka/gitstatus/internal/screens/news"
-	"github.com/bchayka/gitstatus/internal/screens/resources"
 	"github.com/bchayka/gitstatus/internal/screens/spotlight"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,18 +42,18 @@ type App struct {
 	flashAt time.Time
 }
 
-// New constructs the app with all screens wired up. The intro screen is the
-// initial active screen; it emits Navigate(lobby) when its animation ends.
-func New() *App {
+// New constructs the app with all screens wired up. nick is the user's chat
+// handle (e.g. "@boggy"); broker carries shared room state across sessions
+// when vibespace runs as an SSH server; cfg is the team's room
+// configuration. The flagship loads config.DefaultVibespace(); other teams
+// load their own. The intro screen is the initial active screen and emits
+// Navigate(lobby) when its animation ends.
+func New(nick string, broker *room.Broker, cfg config.RoomConfig) *App {
 	a := &App{
 		screens: map[string]screens.Screen{
-			screens.IntroID:       intro.New(),
-			screens.LobbyID:       lobby.New(),
-			screens.NewsID:        news.New(),
-			screens.ResourcesID:   resources.New(),
-			screens.SpotlightID:   spotlight.New(),
-			screens.GamesID:       games.New(),
-			screens.DiscussionsID: discussions.New(),
+			screens.IntroID:     intro.New(),
+			screens.LobbyID:     lobby.New(nick, broker, cfg),
+			screens.SpotlightID: spotlight.New(),
 		},
 		current: screens.IntroID,
 	}

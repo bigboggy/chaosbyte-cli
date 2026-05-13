@@ -1,0 +1,30 @@
+# An example team config. A real team's signup flow writes a file like this
+# into the configs directory and the SSH server picks it up on next start
+# (hot reload comes later). Edit any field; missing fields fall back to
+# the flagship defaults.
+
+slug = "acme"
+
+[brand]
+name    = "acme"
+motd    = "acme team workspace. our shop, our voice."
+tagline = "shipping the thing we said we would."
+
+[theme]
+# Only override the accent register. Everything else inherits the dark
+# ground and the cream body from the flagship defaults.
+accent  = "#b87e3d"
+accent2 = "#c89f5a"
+
+[mod]
+welcome = "welcome to acme, {nick}. ship something today."
+
+[surfaces]
+chat      = true
+spotlight = true
+games     = true
+
+[spotlight]
+name        = "ledger-rs"
+author      = "team"
+description = "the rewrite that finally goes to prod this week"

@@ -6,7 +6,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// LogoLines is the CHAOSBYTE ASCII art (ANSI Shadow style). 6 rows × 75 cols.
+// LogoLines is the CHAOSBYTE studio splash (ANSI Shadow style). 6 rows, 75 cols.
+// chaosbyte is the maker; vibespace is the chatroom product the splash leads
+// into. The logo therefore stays on the studio brand, not the product brand.
 var LogoLines = []string{
 	" ██████╗██╗  ██╗ █████╗  ██████╗ ███████╗██████╗ ██╗   ██╗████████╗███████╗",
 	"██╔════╝██║  ██║██╔══██╗██╔═══██╗██╔════╝██╔══██╗╚██╗ ██╔╝╚══██╔══╝██╔════╝",

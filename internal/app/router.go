@@ -2,8 +2,6 @@ package app
 
 import (
 	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/screens/discussions"
-	"github.com/bchayka/gitstatus/internal/screens/games"
 	"github.com/bchayka/gitstatus/internal/screens/lobby"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -59,7 +57,17 @@ func (a *App) navigate(target string) tea.Cmd {
 			lob.EnsureJoined()
 		}
 	}
-	return nil
+	// Field-driven entry effect: screens that implement Entrant get a hook
+	// to pulse their backdrop, register a welcome overlay, or otherwise
+	// drive the engine into the moment.
+	if ent, ok := a.screens[target].(screens.Entrant); ok {
+		ent.OnEnter()
+	}
+	// Re-initialise the activated screen so screens that drive their own
+	// ticks (intro, ambient) can schedule a fresh tick chain. App.Init only
+	// runs once at program start; without this hook a screen with its own
+	// tick stays dormant after a re-entry.
+	return a.screens[target].Init()
 }
 
 // handleKey runs global key bindings (esc → lobby, ctrl+c → quit, q → lobby)
@@ -92,14 +100,10 @@ func (a *App) handleKey(km tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, a.updateScreen(km)
 }
 
-// interceptEsc lets screens with sub-modes (discussions popups, games launcher)
-// pop one level before esc falls through to "back to lobby".
+// interceptEsc lets a screen with a sub-mode pop one level before esc
+// falls through to "back to lobby". No screen currently has a sub-mode
+// after the games-as-separate-screen model was retired; games now run
+// inside the lobby's chat itself, and the lobby handles its own esc.
 func (a *App) interceptEsc() bool {
-	switch s := a.screens[a.current].(type) {
-	case *discussions.Screen:
-		return s.BackOut()
-	case *games.Screen:
-		return s.BackToList()
-	}
 	return false
 }
