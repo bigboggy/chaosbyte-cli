@@ -92,14 +92,17 @@ func DefaultVibespace() RoomConfig {
 			MOTD:    "the workshop is open. :help when you need it. :leave when you go.",
 			Tagline: "a small room for those who are paying attention.",
 		},
+		// Flagship palette is the "boggy" theme registered in internal/theme.
+		// Users can switch to "workshop" or any other registered theme via
+		// /themes inside the room.
 		Theme: ThemeConfig{
-			Bg:       lipgloss.Color("#0a0a0c"),
-			Fg:       lipgloss.Color("#e6dccb"),
-			Muted:    lipgloss.Color("#7d7a72"),
-			Accent:   lipgloss.Color("#7a9a6a"),
-			Accent2:  lipgloss.Color("#b3962a"),
-			BorderHi: lipgloss.Color("#25252d"),
-			BorderLo: lipgloss.Color("#1a1a1f"),
+			Bg:       lipgloss.Color("#1a1b26"),
+			Fg:       lipgloss.Color("#c0caf5"),
+			Muted:    lipgloss.Color("#565f89"),
+			Accent:   lipgloss.Color("#7aa2f7"),
+			Accent2:  lipgloss.Color("#bb9af7"),
+			BorderHi: lipgloss.Color("#7aa2f7"),
+			BorderLo: lipgloss.Color("#3b4261"),
 		},
 		Mod: ModConfig{
 			Nick:               "@mod",

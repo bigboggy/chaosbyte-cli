@@ -1,33 +1,57 @@
-// Package theme holds the runtime palette and shared lipgloss styles. The
-// palette ships with the flagship Vibespace defaults and the platform loads
-// a different team's config at startup by calling Apply with their colors.
-// Screens read the package-level vars; they update once at startup and
-// stay stable for the lifetime of the session.
+// Package theme holds the runtime palette and shared lipgloss styles.
+// Screens read the package-level color vars; the platform mutates the
+// live palette via Apply at session start, and the /themes slash command
+// swaps between named registered themes at runtime.
 //
-// The shipped defaults are a near-black ground with parchment-cream body
-// text, a muted phosphor green for positive marks, and a muted gold for
-// the moderator's voice. Three text colors is the working set. Anything
-// else is a moment.
+// Two palettes ship by default: "boggy" is the original Tokyo-night-style
+// dark theme (cool blues and purples), "workshop" is the parchment cream
+// with muted phosphor green and gold. Teams can register their own by
+// adding to Themes during init, or override values inline via the team's
+// .toml config.
 package theme
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"sort"
 
-// Palette holds the seven runtime colors the theme exposes. Read it via
-// the package-level vars; mutate the live palette via Apply.
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Palette holds the runtime colors. OK / Warn / Like default to Accent /
+// Accent2 / Accent if left zero, which preserves the older two-accent
+// behavior for palettes that don't want a distinct status register.
 type Palette struct {
+	Name     string
 	Bg       lipgloss.Color
 	Fg       lipgloss.Color
 	Muted    lipgloss.Color
 	Accent   lipgloss.Color
 	Accent2  lipgloss.Color
+	OK       lipgloss.Color
+	Warn     lipgloss.Color
+	Like     lipgloss.Color
 	BorderHi lipgloss.Color
 	BorderLo lipgloss.Color
 }
 
-// DefaultPalette is the flagship Vibespace color set. New teams override
-// any subset via Apply; whatever they leave at zero falls back to these.
-func DefaultPalette() Palette {
-	return Palette{
+// Themes is the registry the /themes slash command lists and switches
+// between. Adding a new theme is a single map entry; nothing else needs
+// to change. Keep names lowercase and short.
+var Themes = map[string]Palette{
+	"boggy": {
+		Name:     "boggy",
+		Bg:       lipgloss.Color("#1a1b26"),
+		Fg:       lipgloss.Color("#c0caf5"),
+		Muted:    lipgloss.Color("#565f89"),
+		Accent:   lipgloss.Color("#7aa2f7"),
+		Accent2:  lipgloss.Color("#bb9af7"),
+		OK:       lipgloss.Color("#9ece6a"),
+		Warn:     lipgloss.Color("#e0af68"),
+		Like:     lipgloss.Color("#f7768e"),
+		BorderHi: lipgloss.Color("#7aa2f7"),
+		BorderLo: lipgloss.Color("#3b4261"),
+	},
+	"workshop": {
+		Name:     "workshop",
 		Bg:       lipgloss.Color("#0a0a0c"),
 		Fg:       lipgloss.Color("#e6dccb"),
 		Muted:    lipgloss.Color("#7d7a72"),
@@ -35,7 +59,13 @@ func DefaultPalette() Palette {
 		Accent2:  lipgloss.Color("#b3962a"),
 		BorderHi: lipgloss.Color("#25252d"),
 		BorderLo: lipgloss.Color("#1a1a1f"),
-	}
+	},
+}
+
+// DefaultPalette returns the flagship Vibespace palette ("boggy"). Used as
+// the fallback when team configs leave fields empty.
+func DefaultPalette() Palette {
+	return Themes["boggy"]
 }
 
 // The package-level palette vars read by every screen. Initialized to the
@@ -49,21 +79,20 @@ var (
 	BorderHi = DefaultPalette().BorderHi
 	BorderLo = DefaultPalette().BorderLo
 
-	// OK and Like share the green register.
-	OK   = Accent
-	Like = Accent
-
-	// Warn and Fault share the gold register. The distinction lives in the
-	// marker glyph rather than in a second color.
-	Warn  = Accent2
+	OK    = DefaultPalette().OK
+	Warn  = DefaultPalette().Warn
+	Like  = DefaultPalette().Like
 	Fault = Accent2
+
+	// Active is the name of the currently applied theme. The /themes
+	// command reads this to mark the active entry in its listing.
+	Active = DefaultPalette().Name
 )
 
-// Apply replaces the runtime palette with the team-supplied colors. Must
-// be called before any screen renders, typically once at startup from main
-// or the SSH session handler. Zero-valued fields in the input fall through
-// to the flagship defaults so a team can override a single color without
-// re-declaring the rest.
+// Apply replaces the runtime palette with the supplied colors. Zero-valued
+// fields fall through to the flagship defaults, so a team can override a
+// single color without restating the rest. OK / Warn / Like default to
+// Accent / Accent2 / Accent if not specified.
 func Apply(p Palette) {
 	def := DefaultPalette()
 	if p.Bg == "" {
@@ -87,6 +116,15 @@ func Apply(p Palette) {
 	if p.BorderLo == "" {
 		p.BorderLo = def.BorderLo
 	}
+	if p.OK == "" {
+		p.OK = p.Accent
+	}
+	if p.Warn == "" {
+		p.Warn = p.Accent2
+	}
+	if p.Like == "" {
+		p.Like = p.Accent
+	}
 	Bg = p.Bg
 	Fg = p.Fg
 	Muted = p.Muted
@@ -94,8 +132,32 @@ func Apply(p Palette) {
 	Accent2 = p.Accent2
 	BorderHi = p.BorderHi
 	BorderLo = p.BorderLo
-	OK = Accent
-	Like = Accent
-	Warn = Accent2
-	Fault = Accent2
+	OK = p.OK
+	Warn = p.Warn
+	Like = p.Like
+	Fault = p.Warn
+	if p.Name != "" {
+		Active = p.Name
+	}
+}
+
+// ApplyByName looks up a named theme in the registry and applies it.
+// Returns false if the name is unknown so callers can post a clear error.
+func ApplyByName(name string) bool {
+	p, ok := Themes[name]
+	if !ok {
+		return false
+	}
+	Apply(p)
+	return true
+}
+
+// ListThemes returns the registry's theme names in stable sorted order.
+func ListThemes() []string {
+	out := make([]string, 0, len(Themes))
+	for k := range Themes {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

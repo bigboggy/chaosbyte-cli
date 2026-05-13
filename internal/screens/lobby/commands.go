@@ -7,6 +7,7 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/games"
 	"github.com/bchayka/gitstatus/internal/screens"
+	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,6 +26,7 @@ type command struct {
 var builtins = []command{
 	{"/spotlight", "open the current spotlit project"},
 	{"/blitz", "thirty seconds where the whole chat dances and we name a winner"},
+	{"/themes", "list color themes, or /themes <name> to switch"},
 	{"/me", "third-person action"},
 	{"/who", "list who is here"},
 	{"/clear", "clear scrollback"},
@@ -65,6 +67,8 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s, screens.Navigate(screens.SpotlightID)
 	case "/blitz":
 		return s.cmdBlitz()
+	case "/themes":
+		return s.cmdThemes(args)
 	case "/help":
 		return s.cmdHelp()
 	case "/clear":
@@ -133,6 +137,33 @@ func (s *Screen) cmdBlitz() (*Screen, tea.Cmd) {
 	s.postMod("type " + target + " fast.")
 	// Force a full repaint so the new banner survives the alt-screen
 	// diff that otherwise skips frames when only state changes.
+	return s, tea.ClearScreen
+}
+
+// cmdThemes lists the registered color themes when called bare, or
+// switches to the requested one when given an argument. Switching forces
+// a full repaint so the alt-screen renderer picks up the new colors on
+// the next frame instead of waiting for a content change.
+func (s *Screen) cmdThemes(args []string) (*Screen, tea.Cmd) {
+	if len(args) == 0 {
+		lines := []string{"themes:"}
+		for _, name := range theme.ListThemes() {
+			prefix := "  "
+			if name == theme.Active {
+				prefix = "* "
+			}
+			lines = append(lines, prefix+name)
+		}
+		lines = append(lines, "switch: /themes <name>")
+		s.postSystem(strings.Join(lines, "\n"))
+		return s, nil
+	}
+	name := strings.ToLower(args[0])
+	if !theme.ApplyByName(name) {
+		s.postSystem(fmt.Sprintf("unknown theme %q, try /themes for the list", name))
+		return s, nil
+	}
+	s.postSystem(fmt.Sprintf("theme: %s", name))
 	return s, tea.ClearScreen
 }
 

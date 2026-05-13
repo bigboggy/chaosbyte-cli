@@ -11,13 +11,16 @@ motd    = "the workshop is open. :help when you need it. :leave when you go."
 tagline = "a small room for those who are paying attention."
 
 [theme]
-bg        = "#0a0a0c"
-fg        = "#e6dccb"
-muted     = "#7d7a72"
-accent    = "#7a9a6a"
-accent2   = "#b3962a"
-border_hi = "#25252d"
-border_lo = "#1a1a1f"
+# Flagship palette: the original "boggy" theme (registered in code by name).
+# Users can switch to "workshop" or any other registered theme via /themes
+# inside the room. Editing values here only changes the team's default.
+bg        = "#1a1b26"
+fg        = "#c0caf5"
+muted     = "#565f89"
+accent    = "#7aa2f7"
+accent2   = "#bb9af7"
+border_hi = "#7aa2f7"
+border_lo = "#3b4261"
 
 [mod]
 nick                  = "@mod"
