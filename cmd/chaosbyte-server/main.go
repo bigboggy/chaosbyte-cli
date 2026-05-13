@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/app"
+	"github.com/bchayka/gitstatus/internal/config"
 	"github.com/bchayka/gitstatus/internal/room"
+	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/ssh"
@@ -67,6 +69,20 @@ func main() {
 }
 
 func handlerFor(broker *room.Broker) bm.Handler {
+	// The flagship runs the DefaultChaosbyte config for every SSH session.
+	// The platform's multi-tenant routing lands in the next commit: read
+	// the SSH user, look up that team's config, route to that team's
+	// broker, apply that team's theme.
+	cfg := config.DefaultChaosbyte()
+	theme.Apply(theme.Palette{
+		Bg:       cfg.Theme.Bg,
+		Fg:       cfg.Theme.Fg,
+		Muted:    cfg.Theme.Muted,
+		Accent:   cfg.Theme.Accent,
+		Accent2:  cfg.Theme.Accent2,
+		BorderHi: cfg.Theme.BorderHi,
+		BorderLo: cfg.Theme.BorderLo,
+	})
 	return func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 		if _, _, active := s.Pty(); !active {
 			wish.Fatalln(s, "chaosbyte requires an interactive terminal")
@@ -76,7 +92,7 @@ func handlerFor(broker *room.Broker) bm.Handler {
 		if nick == "" {
 			nick = "anonymous"
 		}
-		return app.New("@"+nick, broker), []tea.ProgramOption{
+		return app.New("@"+nick, broker, cfg), []tea.ProgramOption{
 			tea.WithAltScreen(),
 			tea.WithMouseCellMotion(),
 		}

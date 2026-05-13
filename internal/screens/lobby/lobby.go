@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bchayka/gitstatus/internal/config"
 	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/mod"
 	"github.com/bchayka/gitstatus/internal/room"
@@ -68,6 +69,12 @@ type Screen struct {
 	choreographer    *typo.Choreographer
 	activeTransforms []typo.CellTransform // updated each Tick; consumed in View
 	lastPlacements   []msgPlacement       // chat message body Layouts + positions from last View
+
+	// cfg carries the team's room configuration (brand, spotlight content,
+	// moderator personality). The flagship loads config.DefaultChaosbyte();
+	// other teams load their own. Surfaces and rendering read from here so
+	// the same engine paints any team's room.
+	cfg config.RoomConfig
 }
 
 // msgPlacement records where one chat message's body lives in the rendered
@@ -85,7 +92,7 @@ type msgPlacement struct {
 // be nil for fully-local mode. When broker is attached every channel's
 // scrollback comes from broker.Snapshot and a single subscription delivers
 // events for all channels.
-func New(nick string, broker *room.Broker) *Screen {
+func New(nick string, broker *room.Broker, cfg config.RoomConfig) *Screen {
 	if nick == "" {
 		nick = "@boggy"
 	}
@@ -99,6 +106,7 @@ func New(nick string, broker *room.Broker) *Screen {
 		broker:        broker,
 		lobbyIdx:      -1,
 		choreographer: typo.NewChoreographer(),
+		cfg:           cfg,
 	}
 	for i, ch := range s.channels {
 		if ch.Name == "#lobby" {
@@ -481,7 +489,7 @@ func (s *Screen) View(width, height int) string {
 	}
 	ch := s.channels[s.chatActive]
 
-	bar := topBar(ch, contentW)
+	bar := s.renderTopBar(ch, contentW)
 	barH := lipgloss.Height(bar)
 
 	prompt := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
@@ -549,15 +557,23 @@ func (s *Screen) View(width, height int) string {
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
-func topBar(ch Channel, width int) string {
-	brand := lipgloss.NewStyle().Foreground(theme.Fg).Bold(true).Render("chaosbyte")
-	tonight := lipgloss.NewStyle().Foreground(theme.Accent2).Render("TONIGHT")
-	spotlight := lipgloss.NewStyle().Foreground(theme.Fg).Bold(true).Render("tinytty")
-	by := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("by rin")
+func (s *Screen) renderTopBar(ch Channel, width int) string {
+	brand := lipgloss.NewStyle().Foreground(theme.Fg).Bold(true).Render(s.cfg.Brand.Name)
+	bar := brand
+	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render("  ·  ")
+	if s.cfg.Surfaces.Spotlight && s.cfg.Spotlight.Name != "" {
+		tonight := lipgloss.NewStyle().Foreground(theme.Accent2).Render("TONIGHT")
+		spotlight := lipgloss.NewStyle().Foreground(theme.Fg).Bold(true).Render(s.cfg.Spotlight.Name)
+		bar += sep + tonight + " " + spotlight
+		if s.cfg.Spotlight.Author != "" {
+			by := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
+				Render("by " + s.cfg.Spotlight.Author)
+			bar += " " + by
+		}
+	}
 	online := lipgloss.NewStyle().Foreground(theme.Muted).
 		Render(fmt.Sprintf("%d here", ch.Online))
-	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render("  ·  ")
-	bar := brand + sep + tonight + " " + spotlight + " " + by + sep + online
+	bar += sep + online
 	if lipgloss.Width(bar) > width {
 		bar = ui.Truncate(bar, width)
 	}

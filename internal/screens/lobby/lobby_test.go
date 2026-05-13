@@ -3,6 +3,7 @@ package lobby
 import (
 	"testing"
 
+	"github.com/bchayka/gitstatus/internal/config"
 	"github.com/bchayka/gitstatus/internal/screens"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -12,7 +13,7 @@ import (
 // command did nothing; this nails down whether the bug is in the slash
 // dispatch or somewhere upstream.
 func TestSlashGamesNavigates(t *testing.T) {
-	s := New("@boggy", nil)
+	s := New("@boggy", nil, config.DefaultChaosbyte())
 	s.input.SetValue("/games")
 
 	out, cmd := s.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -34,7 +35,7 @@ func TestSlashGamesNavigates(t *testing.T) {
 
 // TestSlashSpotlightNavigates is the same check for /spotlight.
 func TestSlashSpotlightNavigates(t *testing.T) {
-	s := New("@boggy", nil)
+	s := New("@boggy", nil, config.DefaultChaosbyte())
 	s.input.SetValue("/spotlight")
 
 	_, cmd := s.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
