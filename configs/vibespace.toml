@@ -1,12 +1,12 @@
-# The flagship Chaosbyte room. Loaded automatically by the SSH server when
-# a connection arrives at the chaosbyte slug. Other teams have a similar
+# The flagship Vibespace room. Loaded automatically by the SSH server when
+# a connection arrives at the vibespace slug. Other teams have a similar
 # file under the same directory; each file's slug is the filename minus
 # the .toml extension unless a slug is set explicitly.
 
-slug = "chaosbyte"
+slug = "vibespace"
 
 [brand]
-name    = "chaosbyte"
+name    = "vibespace"
 motd    = "the workshop is open. :help when you need it. :leave when you go."
 tagline = "a small room for those who are paying attention."
 

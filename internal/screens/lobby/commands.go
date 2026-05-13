@@ -30,7 +30,7 @@ var builtins = []command{
 	{"/clear", "clear scrollback"},
 	{"/help", "show all commands"},
 	{"/leave", "leave the room"},
-	{"/quit", "exit chaosbyte"},
+	{"/quit", "exit vibespace"},
 }
 
 // aliases maps an alternate spelling to its canonical command name. Aliases

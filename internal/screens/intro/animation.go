@@ -14,13 +14,16 @@ import (
 const (
 	phaseBootEnd   = 400  // boot lines type out
 	phaseBuildEnd  = 1000 // logo builds line by line (600ms)
-	phaseHoldEnd   = 3500 // logo holds with tagline (2500ms — the brand beat)
+	phaseHoldEnd   = 3500 // logo holds with tagline (2500ms, the brand beat)
 	phaseShrinkEnd = 3800 // collapses to plain "CHAOSBYTE"
-	phaseByteEnd   = 4200 // morphs through binary → "byte"
+	phaseByteEnd   = 4200 // morphs through binary into "byte"
 	phaseBlockEnd  = 4400 // single block
 	phaseFadeEnd   = 4600 // blank, then transition
 )
 
+// The splash sequence is the chaosbyte studio mark. It plays once on
+// connect and resolves into the vibespace lobby. Don't rename "chaosbyte"
+// here to the product name; this is the maker's brand beat.
 var bootLines = []string{
 	"chaosbyte",
 	"",

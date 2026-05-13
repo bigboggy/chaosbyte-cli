@@ -72,7 +72,7 @@ type Screen struct {
 	lastPlacements   []msgPlacement       // chat message body Layouts + positions from last View
 
 	// cfg carries the team's room configuration (brand, spotlight content,
-	// moderator personality). The flagship loads config.DefaultChaosbyte();
+	// moderator personality). The flagship loads config.DefaultVibespace();
 	// other teams load their own. Surfaces and rendering read from here so
 	// the same engine paints any team's room.
 	cfg config.RoomConfig

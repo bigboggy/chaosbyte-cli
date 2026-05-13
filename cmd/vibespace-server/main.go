@@ -1,4 +1,4 @@
-// chaosbyte-server hosts chaosbyte over SSH. Each connection spawns its own
+// vibespace-server hosts vibespace over SSH. Each connection spawns its own
 // bubbletea program backed by an app.App; today the rooms are independent
 // per session, broker-backed shared state lands as a follow-up commit.
 package main
@@ -31,7 +31,7 @@ import (
 func main() {
 	host := flag.String("host", "0.0.0.0", "SSH listen host")
 	port := flag.String("port", "23234", "SSH listen port")
-	keyPath := flag.String("hostkey", ".ssh/chaosbyte_ed25519", "SSH host key path (auto-generated if missing)")
+	keyPath := flag.String("hostkey", ".ssh/vibespace_ed25519", "SSH host key path (auto-generated if missing)")
 	configsDir := flag.String("configs", "configs", "directory containing per-team .toml config files")
 	flag.Parse()
 
@@ -66,7 +66,7 @@ func main() {
 
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-	log.Info("starting chaosbyte SSH server", "host", *host, "port", *port)
+	log.Info("starting vibespace SSH server", "host", *host, "port", *port)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
 			log.Error("could not start server", "error", err)
@@ -75,7 +75,7 @@ func main() {
 	}()
 
 	<-done
-	log.Info("stopping chaosbyte SSH server")
+	log.Info("stopping vibespace SSH server")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
@@ -104,13 +104,13 @@ func main() {
 func handlerFor(reg *platform.Registry) bm.Handler {
 	return func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 		if _, _, active := s.Pty(); !active {
-			wish.Fatalln(s, "chaosbyte requires an interactive terminal")
+			wish.Fatalln(s, "vibespace requires an interactive terminal")
 			return nil, nil
 		}
 		lipgloss.SetDefaultRenderer(bm.MakeRenderer(s))
 		slug := s.User()
 		if slug == "" {
-			slug = "chaosbyte"
+			slug = "vibespace"
 		}
 		cfg, broker := reg.Resolve(slug)
 		theme.Apply(theme.Palette{

@@ -1,5 +1,5 @@
 // Package theme holds the runtime palette and shared lipgloss styles. The
-// palette ships with the flagship Chaosbyte defaults and the platform loads
+// palette ships with the flagship Vibespace defaults and the platform loads
 // a different team's config at startup by calling Apply with their colors.
 // Screens read the package-level vars; they update once at startup and
 // stay stable for the lifetime of the session.
@@ -24,7 +24,7 @@ type Palette struct {
 	BorderLo lipgloss.Color
 }
 
-// DefaultPalette is the flagship Chaosbyte color set. New teams override
+// DefaultPalette is the flagship Vibespace color set. New teams override
 // any subset via Apply; whatever they leave at zero falls back to these.
 func DefaultPalette() Palette {
 	return Palette{

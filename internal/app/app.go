@@ -44,8 +44,8 @@ type App struct {
 
 // New constructs the app with all screens wired up. nick is the user's chat
 // handle (e.g. "@boggy"); broker carries shared room state across sessions
-// when chaosbyte runs as an SSH server; cfg is the team's room
-// configuration. The flagship loads config.DefaultChaosbyte(); other teams
+// when vibespace runs as an SSH server; cfg is the team's room
+// configuration. The flagship loads config.DefaultVibespace(); other teams
 // load their own. The intro screen is the initial active screen and emits
 // Navigate(lobby) when its animation ends.
 func New(nick string, broker *room.Broker, cfg config.RoomConfig) *App {

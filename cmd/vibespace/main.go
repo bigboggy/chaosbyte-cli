@@ -1,11 +1,11 @@
-// chaosbyte is the local single-user entry point for the workshop. It
+// vibespace is the local single-user entry point for the workshop. It
 // runs the bubbletea app directly in the terminal, with no SSH, no
 // broker, and no Wish middleware. Use it during development to see
 // rendered output the same way an end user would, without the SSH
 // rendering path in the middle.
 //
-// The flagship Chaosbyte theme and config are baked in via
-// config.DefaultChaosbyte(); other teams' configs are an SSH-server
+// The flagship Vibespace theme and config are baked in via
+// config.DefaultVibespace(); other teams' configs are an SSH-server
 // concern and aren't exposed locally.
 package main
 
@@ -24,7 +24,7 @@ func main() {
 	noAltScreen := flag.Bool("no-alt-screen", false, "render inline instead of switching to the alt screen, useful when diagnosing render-diff issues")
 	flag.Parse()
 
-	cfg := config.DefaultChaosbyte()
+	cfg := config.DefaultVibespace()
 	theme.Apply(theme.Palette{
 		Bg:       cfg.Theme.Bg,
 		Fg:       cfg.Theme.Fg,

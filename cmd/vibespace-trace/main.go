@@ -1,4 +1,4 @@
-// chaosbyte-trace drives the App's Update method directly with synthetic
+// vibespace-trace drives the App's Update method directly with synthetic
 // messages so we can verify what state /blitz produces without going
 // through a TTY. It mirrors the bubbletea event loop: dispatches each
 // command's returned Cmd, expands NavigateMsg into a follow-up Update,
@@ -42,7 +42,7 @@ func dispatch(model tea.Model, msg tea.Msg) tea.Model {
 }
 
 func main() {
-	cfg := config.DefaultChaosbyte()
+	cfg := config.DefaultVibespace()
 	theme.Apply(theme.Palette{
 		Bg: cfg.Theme.Bg, Fg: cfg.Theme.Fg, Muted: cfg.Theme.Muted,
 		Accent: cfg.Theme.Accent, Accent2: cfg.Theme.Accent2,

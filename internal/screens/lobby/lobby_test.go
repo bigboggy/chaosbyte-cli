@@ -25,7 +25,7 @@ func typeKeys(t *testing.T, s *Screen, text string) {
 // model replaced the separate-screen one; the test for that command went
 // with it.
 func TestSlashSpotlightNavigates(t *testing.T) {
-	s := New("@boggy", nil, config.DefaultChaosbyte())
+	s := New("@boggy", nil, config.DefaultVibespace())
 	s.input.SetValue("/spotlight")
 
 	_, cmd := s.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -48,7 +48,7 @@ func TestSlashSpotlightNavigates(t *testing.T) {
 // path silently drops the command. If this fails, the bug is in the
 // keystroke routing, not the slash handler.
 func TestSlashBlitzTypedCharByChar(t *testing.T) {
-	s := New("@boggy", nil, config.DefaultChaosbyte())
+	s := New("@boggy", nil, config.DefaultVibespace())
 	typeKeys(t, s, "/blitz")
 	if got := s.input.Value(); got != "/blitz" {
 		t.Fatalf("after typing /blitz the input should hold /blitz; got %q", got)
@@ -66,7 +66,7 @@ func TestSlashBlitzTypedCharByChar(t *testing.T) {
 // it won't show plain text during the first second of the round; the
 // top bar is the always-readable reference.
 func TestSlashBlitzPostsAnnouncement(t *testing.T) {
-	s := New("@boggy", nil, config.DefaultChaosbyte())
+	s := New("@boggy", nil, config.DefaultVibespace())
 	before := len(s.channels[s.chatActive].Messages)
 	s.input.SetValue("/blitz")
 

@@ -2,8 +2,8 @@
 // team's room; the platform decides which team's config and broker a given
 // SSH session connects to.
 //
-// The flagship Chaosbyte registers itself at the slug "chaosbyte" with the
-// DefaultChaosbyte config. Other teams register their own config under
+// The flagship Vibespace registers itself at the slug "vibespace" with the
+// DefaultVibespace config. Other teams register their own config under
 // their own slug. An SSH session connects with `ssh teamslug@host`, the
 // platform reads the user, resolves to that team's config and broker, and
 // the engine renders the room.
@@ -14,7 +14,7 @@
 //   - Cross-team traffic is impossible by construction
 //
 // Resolution falls back to the flagship if an unknown slug arrives, so a
-// random SSH connection lands in Chaosbyte rather than being refused.
+// random SSH connection lands in Vibespace rather than being refused.
 package platform
 
 import (
@@ -33,15 +33,15 @@ type Registry struct {
 	brokers        map[string]*room.Broker
 }
 
-// NewRegistry builds a registry seeded with the flagship Chaosbyte. The
-// flagship's slug is whatever DefaultChaosbyte returns ("chaosbyte" today).
+// NewRegistry builds a registry seeded with the flagship Vibespace. The
+// flagship's slug is whatever DefaultVibespace returns ("vibespace" today).
 // Use Register to add more teams.
 func NewRegistry() *Registry {
 	r := &Registry{
 		configs: map[string]config.RoomConfig{},
 		brokers: map[string]*room.Broker{},
 	}
-	flagship := config.DefaultChaosbyte()
+	flagship := config.DefaultVibespace()
 	r.flagshipSlug = flagship.Slug
 	r.Register(flagship)
 	return r

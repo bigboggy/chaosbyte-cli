@@ -2,7 +2,7 @@
 // startup. The same Go binary serves any number of teams; each team's room
 // is the engine running against a different config.
 //
-// The flagship Chaosbyte instance loads DefaultChaosbyte. Other teams load
+// The flagship Vibespace instance loads DefaultVibespace. Other teams load
 // their own config from a file (planned) or from a memory-resident map
 // (current). The flagship is one customer of the platform, not the platform.
 //
@@ -19,8 +19,8 @@ import "github.com/charmbracelet/lipgloss"
 // by surface so adding a field stays local.
 type RoomConfig struct {
 	// Slug is the URL-safe identifier the SSH server uses to route incoming
-	// connections to this team's room. "chaosbyte" routes the flagship.
-	// Empty falls back to "chaosbyte".
+	// connections to this team's room. "vibespace" routes the flagship.
+	// Empty falls back to "vibespace".
 	Slug string
 
 	Brand     BrandConfig
@@ -82,13 +82,13 @@ type SpotlightConfig struct {
 	RepoURL     string
 }
 
-// DefaultChaosbyte returns the flagship instance's configuration. Every
+// DefaultVibespace returns the flagship instance's configuration. Every
 // new team config inherits these defaults for any field it leaves empty.
-func DefaultChaosbyte() RoomConfig {
+func DefaultVibespace() RoomConfig {
 	return RoomConfig{
-		Slug: "chaosbyte",
+		Slug: "vibespace",
 		Brand: BrandConfig{
-			Name:    "chaosbyte",
+			Name:    "vibespace",
 			MOTD:    "the workshop is open. :help when you need it. :leave when you go.",
 			Tagline: "a small room for those who are paying attention.",
 		},
@@ -125,7 +125,7 @@ func DefaultChaosbyte() RoomConfig {
 // empty fields from the flagship defaults. This is what the loader returns:
 // the union of the team's overrides and the engine's expected fields.
 func MergeWithDefaults(team RoomConfig) RoomConfig {
-	def := DefaultChaosbyte()
+	def := DefaultVibespace()
 	if team.Slug == "" {
 		team.Slug = def.Slug
 	}

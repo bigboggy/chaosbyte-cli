@@ -1,6 +1,6 @@
 // The local entry point for the platform. The same Go binary that hosts
 // the SSH server runs locally as a single-session client against the
-// in-process broker. The flagship Chaosbyte configuration loads here. A
+// in-process broker. The flagship Vibespace configuration loads here. A
 // different team's room is the same binary loaded with a different config,
 // which is the entire point of the platform layer.
 package main
@@ -21,7 +21,7 @@ func main() {
 	if nick == "" {
 		nick = "boggy"
 	}
-	cfg := config.DefaultChaosbyte()
+	cfg := config.DefaultVibespace()
 	theme.Apply(theme.Palette{
 		Bg:       cfg.Theme.Bg,
 		Fg:       cfg.Theme.Fg,
@@ -35,7 +35,7 @@ func main() {
 	defer broker.Stop()
 	p := tea.NewProgram(app.New("@"+nick, broker, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "chaosbyte: %v\n", err)
+		fmt.Fprintf(os.Stderr, "vibespace: %v\n", err)
 		os.Exit(1)
 	}
 }
