@@ -2,7 +2,6 @@ package app
 
 import (
 	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/screens/discussions"
 	"github.com/bchayka/gitstatus/internal/screens/games"
 	"github.com/bchayka/gitstatus/internal/screens/lobby"
 	tea "github.com/charmbracelet/bubbletea"
@@ -102,12 +101,11 @@ func (a *App) handleKey(km tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, a.updateScreen(km)
 }
 
-// interceptEsc lets screens with sub-modes (discussions popups, games launcher)
-// pop one level before esc falls through to "back to lobby".
+// interceptEsc lets a screen with a sub-mode pop one level before esc
+// falls through to "back to lobby". The games screen has its blitz mode;
+// other screens are flat and fall through.
 func (a *App) interceptEsc() bool {
 	switch s := a.screens[a.current].(type) {
-	case *discussions.Screen:
-		return s.BackOut()
 	case *games.Screen:
 		return s.BackToList()
 	}

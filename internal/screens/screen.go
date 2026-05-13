@@ -94,13 +94,15 @@ func OpenURL(url string) tea.Cmd {
 	return Flash("opened: " + url)
 }
 
-// Screen ids — used as keys in the app's screen map and as Navigate targets.
+// Screen ids used as keys in the app's screen map and as Navigate targets.
+// The room runs in three places. The lobby is where conversation happens,
+// where the moderator surfaces a spotlit project, and where games run as
+// chat events. The spotlight screen carries the full reading view for the
+// currently surfaced project. The games screen owns the bricks blitz
+// while the room watches.
 const (
-	IntroID       = "intro"
-	LobbyID       = "lobby"
-	NewsID        = "news"
-	ResourcesID   = "resources"
-	SpotlightID   = "spotlight"
-	GamesID       = "games"
-	DiscussionsID = "discussions"
+	IntroID     = "intro"
+	LobbyID     = "lobby"
+	SpotlightID = "spotlight"
+	GamesID     = "games"
 )

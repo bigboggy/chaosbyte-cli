@@ -16,12 +16,9 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/screens/discussions"
 	"github.com/bchayka/gitstatus/internal/screens/games"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
 	"github.com/bchayka/gitstatus/internal/screens/lobby"
-	"github.com/bchayka/gitstatus/internal/screens/news"
-	"github.com/bchayka/gitstatus/internal/screens/resources"
 	"github.com/bchayka/gitstatus/internal/screens/spotlight"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,13 +50,10 @@ type App struct {
 func New(nick string, broker *room.Broker) *App {
 	a := &App{
 		screens: map[string]screens.Screen{
-			screens.IntroID:       intro.New(),
-			screens.LobbyID:       lobby.New(nick, broker),
-			screens.NewsID:        news.New(),
-			screens.ResourcesID:   resources.New(),
-			screens.SpotlightID:   spotlight.New(),
-			screens.GamesID:       games.New(broker),
-			screens.DiscussionsID: discussions.New(),
+			screens.IntroID:     intro.New(),
+			screens.LobbyID:     lobby.New(nick, broker),
+			screens.SpotlightID: spotlight.New(),
+			screens.GamesID:     games.New(broker),
 		},
 		current: screens.IntroID,
 	}
