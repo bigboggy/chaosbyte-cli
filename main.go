@@ -1,7 +1,8 @@
-// chaosbyte — a TUI lobby for devs and vibe coders.
-//
-// All real work lives in internal/. main.go is just the entrypoint that wires
-// the bubbletea program to internal/app.
+// The local entry point for the platform. The same Go binary that hosts
+// the SSH server runs locally as a single-session client against the
+// in-process broker. The flagship Chaosbyte configuration loads here. A
+// different team's room is the same binary loaded with a different config,
+// which is the entire point of the platform layer.
 package main
 
 import (
@@ -9,11 +10,30 @@ import (
 	"os"
 
 	"github.com/bchayka/gitstatus/internal/app"
+	"github.com/bchayka/gitstatus/internal/config"
+	"github.com/bchayka/gitstatus/internal/room"
+	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	p := tea.NewProgram(app.New(), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	nick := os.Getenv("USER")
+	if nick == "" {
+		nick = "boggy"
+	}
+	cfg := config.DefaultChaosbyte()
+	theme.Apply(theme.Palette{
+		Bg:       cfg.Theme.Bg,
+		Fg:       cfg.Theme.Fg,
+		Muted:    cfg.Theme.Muted,
+		Accent:   cfg.Theme.Accent,
+		Accent2:  cfg.Theme.Accent2,
+		BorderHi: cfg.Theme.BorderHi,
+		BorderLo: cfg.Theme.BorderLo,
+	})
+	broker := room.New()
+	defer broker.Stop()
+	p := tea.NewProgram(app.New("@"+nick, broker, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "chaosbyte: %v\n", err)
 		os.Exit(1)

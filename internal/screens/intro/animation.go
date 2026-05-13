@@ -22,13 +22,12 @@ const (
 )
 
 var bootLines = []string{
-	"chaosbyte boot v0.1.0",
+	"chaosbyte",
 	"",
-	"[ok] kernel              loaded",
-	"[ok] mesh.chaosbyte.dev  online",
-	"[ok] vibes               synced",
-	"[ok] tui driver          initialized",
-	"[ok] #lobby              ready",
+	"the workshop is opening for you.",
+	"",
+	"a small room for those",
+	"who are paying attention.",
 }
 
 // View renders the current animation frame, centered in the given viewport.

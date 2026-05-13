@@ -52,6 +52,13 @@ type KeyHint struct {
 	Key, Desc string
 }
 
+// Entrant is an optional interface for screens that want a hook the router
+// runs when they become active. Used for field-driven entry effects: pulse
+// the backdrop, register a welcome overlay, palette shift on navigate.
+type Entrant interface {
+	OnEnter()
+}
+
 // NavigateMsg requests a screen switch. Emitted by Navigate; handled by the
 // app router.
 type NavigateMsg struct{ Target string }
@@ -87,13 +94,13 @@ func OpenURL(url string) tea.Cmd {
 	return Flash("opened: " + url)
 }
 
-// Screen ids — used as keys in the app's screen map and as Navigate targets.
+// Screen ids used as keys in the app's screen map and as Navigate targets.
+// The room runs in three places. The lobby is where conversation happens
+// and where games unfold inside the chat itself. The spotlight screen
+// carries the full reading view for the currently surfaced project. The
+// intro plays once on first connect.
 const (
-	IntroID       = "intro"
-	LobbyID       = "lobby"
-	NewsID        = "news"
-	ResourcesID   = "resources"
-	SpotlightID   = "spotlight"
-	GamesID       = "games"
-	DiscussionsID = "discussions"
+	IntroID     = "intro"
+	LobbyID     = "lobby"
+	SpotlightID = "spotlight"
 )
