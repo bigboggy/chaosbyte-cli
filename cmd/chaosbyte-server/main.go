@@ -17,7 +17,6 @@ import (
 	"github.com/bchayka/gitstatus/internal/config"
 	"github.com/bchayka/gitstatus/internal/platform"
 	"github.com/bchayka/gitstatus/internal/theme"
-	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/ssh"
@@ -31,10 +30,18 @@ func main() {
 	host := flag.String("host", "0.0.0.0", "SSH listen host")
 	port := flag.String("port", "23234", "SSH listen port")
 	keyPath := flag.String("hostkey", ".ssh/chaosbyte_ed25519", "SSH host key path (auto-generated if missing)")
+	configsDir := flag.String("configs", "configs", "directory containing per-team .toml config files")
 	flag.Parse()
 
 	registry := platform.NewRegistry()
-	registry.Register(demoAcmeConfig())
+	if loaded, err := config.LoadFromDir(*configsDir); err != nil {
+		log.Warn("could not read configs directory", "dir", *configsDir, "error", err)
+	} else {
+		for _, cfg := range loaded {
+			registry.Register(cfg)
+			log.Info("registered team", "slug", cfg.Slug, "brand", cfg.Brand.Name)
+		}
+	}
 	defer registry.Stop()
 
 	srv, err := wish.NewServer(
@@ -112,34 +119,3 @@ func handlerFor(reg *platform.Registry) bm.Handler {
 	}
 }
 
-// demoAcmeConfig is a second registered team that proves the routing
-// works. `ssh acme@chaosbyte.host` lands the user in a different room
-// with a different brand and palette than the flagship. Real teams
-// register through the provisioning surface that lands in a later
-// commit; this one is hardcoded as a smoke test.
-func demoAcmeConfig() config.RoomConfig {
-	return config.RoomConfig{
-		Slug: "acme",
-		Brand: config.BrandConfig{
-			Name:    "acme",
-			MOTD:    "acme team workspace. our shop, our voice.",
-			Tagline: "shipping the thing we said we would.",
-		},
-		Theme: config.ThemeConfig{
-			// A different accent register to show the palette swap. Same
-			// near-black ground; rust-leaning accent instead of phosphor
-			// green. Demonstrates that two teams running side by side can
-			// look distinct without sharing a palette.
-			Accent:  lipgloss.Color("#b87e3d"),
-			Accent2: lipgloss.Color("#c89f5a"),
-		},
-		Mod: config.ModConfig{
-			Welcome: "welcome to acme, {nick}. ship something today.",
-		},
-		Spotlight: config.SpotlightConfig{
-			Name:        "ledger-rs",
-			Author:      "team",
-			Description: "the rewrite that finally goes to prod this week",
-		},
-	}
-}
