@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — install vibespace to $HOME/.local/bin
+# install.sh: installs vibespace to $HOME/.local/bin.
 # Usage: curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace-cli/main/install.sh | bash
 #        bash install.sh --uninstall
 
@@ -93,7 +93,7 @@ mkdir -p "$INSTALL_DIR"
 info "Extracting ..."
 tar -xzf "$TMPDIR/$ASSET" -C "$TMPDIR"
 
-# Find the binary in the archive (may be named gitstatus, gitstatus-darwin-arm64, etc.)
+# Find the binary in the archive (may be named vibespace, vibespace-darwin-arm64, etc.)
 BINARY_PATH=""
 BINARY_PATH="$(find "$TMPDIR" -maxdepth 1 -type f -not -name '*.tar.gz' -not -name '*.zip' \( -name "${BINARY_NAME}" -o -name "${BINARY_NAME}-*" \) | head -1)"
 [[ -z "$BINARY_PATH" ]] && BINARY_PATH="$(find "$TMPDIR" -maxdepth 1 -type f -executable | head -1)"

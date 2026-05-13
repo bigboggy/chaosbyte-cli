@@ -2,33 +2,61 @@
 
 ## Project
 
-**gitstatus** — Go TUI (bubbletea) mock git branch/commit social feed. All code is root-level `package main`. No real git integration; data is seeded fake.
+**vibespace** is a TUI chatroom served over SSH, made by **chaosbyte** (the studio). The flagship instance runs on vibespace.sh. The code in this repo is the SSH server, the single-user dev binary, the headless tracer, and the engines that drive the typographic moments inside the room.
 
-## Commands
+## Build and test
 
 ```
-go build          # binary = gitstatus
-go run .          # run
+go build ./...                       # all three binaries
+go test ./...                        # full package suite
+go vet ./...
 ```
 
-No test framework, no lint/config, no README.
+Quick local run (no SSH, flagship config baked in):
 
-## File roles
+```
+go run ./cmd/vibespace
+```
 
-| File | Purpose |
-|------|---------|
-| `main.go` | entrypoint, `tea.NewProgram` |
-| `model.go` | `model` struct, `Update()`, key handling, mode/focus state |
-| `view.go` | `View()`, all render functions, layout math |
-| `data.go` | `Branch`/`Commit`/`Comment` types, `seedBranches()` |
-| `styles.go` | Catppuccin Mocha colors, `lipgloss` style vars, `paneStyle()` |
+SSH host (Wish daemon, routes the SSH user to its team's room):
+
+```
+go run ./cmd/vibespace-server --port 23234
+ssh -p 23234 vibespace@localhost
+```
+
+Headless tracer that drives `App.Update` with synthetic `tea.Msg` values and prints the final `View()` so multi-step flows can be asserted without a TTY:
+
+```
+go run ./cmd/vibespace-trace
+```
+
+## Where things live
+
+- `cmd/`: the three entry points (local, server, tracer).
+- `internal/platform`: registry that resolves an SSH user to a `(RoomConfig, Broker)` pair.
+- `internal/config`: `RoomConfig` and the `.toml` loader.
+- `internal/room`: per-room broker that holds the message log in process memory and fans out new posts to subscribed sessions.
+- `internal/field`: value-noise warped bitmap engine adapted from ertdfgcvb.xyz/js.js. Five intensity tiers, true tier-0 freeze, cascade events as transient foreground overlays with a Decay window.
+- `internal/typo`: Pretext-flavored content engine for chat. Layouts hold immutable wrapped text with per-cell coordinates; CellTransforms animate one cell along a PathFn with deterministic per-firing variation; the Choreographer composes Macros into chains with hand-off and reduced-motion support; the Compositor flattens everything into one 2D grid for the lobby to render.
+- `internal/mod`: moderator event surface. First live event marks questions with a chat-margin glyph.
+- `internal/games`: in-chat blitz round. Paints existing chat with a per-row wave offset on `AnimationState`; there is no parallel game grid.
+- `internal/theme`: palettes (registered by name, e.g. `boggy`, `workshop`), logo, shared styles. `/themes` reads `theme.Themes` and `theme.Active`.
+- `internal/screens`: `screen.go` is the interface and `Navigate` plumbing; `intro/` is the chaosbyte splash; `lobby/` is the vibespace room; `spotlight/` is the featured-project surface.
+- `internal/app`: top-level router, header, footer, `View()`.
 
 ## Conventions
 
-- Focus cycles `branches → feed → input` via Tab/Shift-Tab; `i` jumps to input, `Esc` exits input.
-- `j`/`k` navigate branches or commits within feed. `l` likes a commit. `c` opens comment mode.
-- Commit input: type a message, Enter to push. Esc to cancel.
-- All colors are Catppuccin Mocha palette (`#1a1b26` bg).
-- `minWidth=80`, `minHeight=22` — terminal too small returns an error-style message.
-- Branch pane is fixed at 28 columns wide.
-- No tests exist. Adding them should target `model.go` Update logic and `view.go` layout helpers.
+- Each feature screen implements `screens.Screen` and never imports another feature screen. Navigation goes through `screens.Navigate(target)` messages caught by `internal/app/router.go`. The dependency graph between screens is a star.
+- Default to no comments. Only add one when the why is non-obvious, or for a package doc at the top of the file.
+- The brand split is firm. `chaosbyte` is the studio and lives on the intro splash and the ASCII logo. `vibespace` is the product the user is inside. Keep them in their lanes.
+- Lowercase commit messages with conventional prefixes (`feat`, `fix`, `chore`, `docs`). Short subject; multi-paragraph body when the change needs context.
+- Tests live next to the package they cover. Add coverage for non-trivial state (cascade expiry, blitz scoring ladder, theme registry behavior, broker fanout). Skip coverage for pure rendering.
+- ANSI color rendering over SSH requires the per-session lipgloss renderer set up in `cmd/vibespace-server`. Don't add code paths that bypass `lipgloss.DefaultRenderer` or fall back to a process-global renderer; SSH sessions would render monochrome.
+
+## Known follow-ups
+
+- Per-session render state. `theme.Apply` and the default-renderer binding are process-global today. Safe for one server, one team. Races when we co-tenant.
+- SSH auth. The Wish stack accepts any user. Adding `wish.WithPublicKeyAuth` plus a key allowlist file is the gate that matches the invite-only framing.
+- AI moderator. The `internal/mod` event surface is rule-driven today; the spec calls for LLM tuning on spotlight selection and the moment director.
+- Repo and module rename. The repo is still `chaosbyte-cli` and the Go module path is still `github.com/bchayka/gitstatus`. After this PR merges, rename the repo to `vibespace-cli` (or `vibespace`) and bump the module path to match.

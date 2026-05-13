@@ -9,12 +9,9 @@
 
 > chaosbyte presents **vibespace**: a TUI chatroom served over SSH.
 
-`chaosbyte` is the studio; `vibespace` is the product. Each connection
-spawns a per-session bubbletea program; the shared `#lobby` broker
-fans out chat across everyone connected to the same team room.
+`chaosbyte` is the studio; `vibespace` is the product. The flagship room runs on **vibespace.sh**. Each connection spawns a per-session bubbletea program, and the in-process broker fans chat out to everyone connected to the same team room.
 
-Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
-[lipgloss](https://github.com/charmbracelet/lipgloss).
+Built with [bubbletea](https://github.com/charmbracelet/bubbletea), [lipgloss](https://github.com/charmbracelet/lipgloss), and [wish](https://github.com/charmbracelet/wish).
 
 ---
 
@@ -28,115 +25,120 @@ curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace-cli/main/install
 
 Installs the **vibespace** binary to `~/.local/bin/vibespace`.
 
-Uninstall:
+To uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace-cli/main/install.sh | bash -s -- --uninstall
+bash install.sh --uninstall
 ```
 
 ---
 
 ## Quick start
 
+Local single-user, no SSH, flagship config baked in:
+
 ```bash
-go run .
+go run ./cmd/vibespace
 ```
 
-Requires Go 1.24+ and a terminal at least 80×22. Catppuccin Mocha palette throughout.
+Stand up the SSH host:
+
+```bash
+go run ./cmd/vibespace-server --port 23234
+```
+
+Then from another shell:
+
+```bash
+ssh -p 23234 vibespace@localhost     # flagship room
+ssh -p 23234 acme@localhost          # acme tenant
+```
+
+The SSH user is the team slug. Two clients connected with the same slug share a room.
 
 ---
 
-## What's in the lobby
+## What's in the room
 
-| Area | Slash command | What it is |
-|------|---------------|------------|
-| **Lobby** | (default) | IRC-style chat with channels, autocompleted slash commands, message history |
-| **News** | `/news` | Combined feed: HN, Lobsters, /r/programming, DevHQ, ArsTechnica |
-| **Spotlight** | `/spotlight` | One featured project + live discussion. Rotates every 5 minutes. |
-| **Resources** | `/resources` (alias `/skills`) | Trending skills, top skills, highlighted GitHub repos, search |
-| **Games** | `/games` | Mini-games. **Bug Hunter** is playable, the rest are aspirational. |
-| **Discussions** | `/discussions` (alias `/commits`, `/feed`) | Threaded commit-style posts across branches |
+The chaosbyte splash plays once on connect and resolves into the **vibespace lobby**. The lobby is the room: chat, the moderator's voice, a per-line typo engine that animates arrivals, and a value-noise field engine behind the surface.
 
-The intro animation plays once on startup — `VIBESPACE` boots, holds, collapses to a single
-byte, then drops you in `#lobby`. Press any key to skip.
+The other surface in v0.3 is **spotlight** (`/spotlight`), which highlights one project at a time and is reached from the lobby.
+
+A **blitz** (`/blitz`) is a thirty-second cascade-race round that plays inside the chat itself. The moderator cascades a target word in, players race to type it, the first three unique matchers score 3 / 2 / 1, and the winner's nick cascade-settles at the end. The round paints existing chat with a per-row wave offset; there is no separate game grid.
 
 ---
 
 ## Slash commands
 
-Type `/` in the lobby and Tab to cycle suggestions.
-
 ```
-/news          open news feed
-/spotlight     open featured project
-/resources     open skills & github repos
-/games         open mini-games
-/discussions   open commit feed
-/join #name    join or switch channel
-/leave         return to #lobby
-/list          list channels
-/who           list users
-/topic [text]  view or set topic
-/me <action>   third-person action
+/spotlight     open the current spotlit project
+/blitz         start a thirty-second cascade-race round
+/themes        list color themes, or /themes <name> to switch
+/me <text>     third-person action
+/who           list who is here
 /clear         clear scrollback
 /help          show all commands
+/leave         leave the room
 /quit          exit vibespace
 ```
 
-Aliases: `/skills` → `/resources`, `/commits` → `/discussions`, `/exit` / `/bye` → `/quit`,
-`/part` → `/leave`, `/channels` → `/list`, `/users` → `/who`, `/?` → `/help`.
+Aliases: `/exit` and `/bye` map to `/quit`, `/users` maps to `/who`, `/?` maps to `/help`.
 
 ---
 
 ## Keyboard
 
-**Anywhere**
-- `ctrl+c` — quit
-- `esc` — back to lobby (or pop one sub-mode if you're in a popup)
+- `ctrl+c` quits
+- `esc` returns to the lobby from any sub-screen, or dismisses a popup
+- `enter` sends a message or runs a slash command
+- `tab` and `shift+tab` cycle autocomplete
+- `↑` and `↓` recall message history
+- `pgup` and `pgdn` scroll the scrollback
+- Per-screen hints update in the footer
 
-**Lobby**
-- `enter` — send / run slash command
-- `tab` / `shift+tab` — cycle autocomplete
-- `↑` / `↓` — recall message history
-- `pgup` / `pgdn` — scroll the scrollback
+---
 
-**Other screens**
-- `j` / `k` — move
-- `enter` — open
-- See the footer hints — they update per screen
+## Themes
 
-**Discussions** (the original feed)
-- `n` — new commit
-- `enter` — open post + comments
-- `l` — like
-- `tab` — next branch · `b` — branch picker
-- `r` — reply (inside a post)
+Two palettes ship by default. `/themes` switches between them inside the room without disconnecting.
+
+| Name | Look |
+|------|------|
+| `boggy` | Tokyo-night-style dark: navy ground, light cool foreground, bright blue and purple accents. The flagship default. |
+| `workshop` | Parchment cream on near-black, muted phosphor green for OK marks, muted gold for the moderator. |
+
+Adding a third theme is a single entry in `internal/theme.Themes`. Team configs can also override their default palette inline in the team's `.toml`.
 
 ---
 
 ## Project layout
 
 ```
-gitstatus/
-├── main.go                 # entrypoint, wires app to bubbletea
+vibespace-cli/
+├── main.go                          # tiny entrypoint shim
+├── cmd/
+│   ├── vibespace/                   # local single-user dev binary
+│   ├── vibespace-server/            # Wish SSH daemon (the deployable)
+│   └── vibespace-trace/             # headless event-loop tracer
 └── internal/
-    ├── theme/              # Catppuccin palette, shared styles, logo
-    ├── ui/                 # layout + text + chat helpers
-    ├── screens/
-    │   ├── screen.go       # Screen interface + Navigate/Flash messages
-    │   ├── intro/          # boot animation
-    │   ├── lobby/          # chat, slash commands, autocomplete
-    │   ├── news/           # combined news feed
-    │   ├── resources/      # skills + repos + search
-    │   ├── spotlight/      # featured project + live chat
-    │   ├── games/          # launcher + bug hunter
-    │   └── discussions/    # threaded commit feed
-    └── app/                # router, header, footer, top-level View
+    ├── theme/                       # palettes (boggy, workshop), logo, styles
+    ├── ui/                          # layout + chat message types
+    ├── config/                      # RoomConfig + .toml loader
+    ├── platform/                    # team registry, slug to (config, broker)
+    ├── room/                        # shared chat broker, per-user nicks
+    ├── field/                       # value-noise bitmap field engine
+    ├── typo/                        # Pretext-style content engine for chat
+    ├── mod/                         # moderator event surface
+    ├── games/                       # in-chat blitz round
+    ├── app/                         # router, header, footer, top-level View
+    └── screens/
+        ├── screen.go                # Screen interface + Navigate messages
+        ├── intro/                   # chaosbyte studio splash
+        ├── lobby/                   # the vibespace room
+        └── spotlight/               # featured-project surface
 ```
 
-Each feature screen implements `screens.Screen` and never imports another
-feature screen. Navigation flows through `screens.Navigate(target)` messages
-caught by `internal/app/router.go`. The dependency graph is a star.
+Each feature screen implements `screens.Screen` and never imports another feature screen. Navigation flows through `screens.Navigate(target)` messages caught by `internal/app/router.go`. The dependency graph is a star.
 
 ---
 
