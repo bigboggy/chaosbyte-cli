@@ -31,7 +31,7 @@ func main() {
 		BorderHi: cfg.Theme.BorderHi,
 		BorderLo: cfg.Theme.BorderLo,
 	})
-	broker := room.New()
+	broker := room.New(cfg.Slug, nil)
 	defer broker.Stop()
 	p := tea.NewProgram(app.New("@"+nick, broker, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {

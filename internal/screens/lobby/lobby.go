@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/config"
+	"github.com/bchayka/gitstatus/internal/events"
 	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/games"
 	"github.com/bchayka/gitstatus/internal/mod"
@@ -60,9 +61,10 @@ type Screen struct {
 
 	// broker hands the shared #lobby scrollback across SSH sessions. When
 	// nil the lobby runs fully local, useful for `go run .` and tests.
-	broker   *room.Broker
-	roomSub  <-chan room.Event
-	lobbyIdx int
+	broker    *room.Broker
+	roomSub   <-chan events.Event
+	roomSubID room.SubscriberID
+	lobbyIdx  int
 
 	// choreographer drives event-triggered cell animations (waves, awards,
 	// gathers). Lobby renders any active CellTransforms over the chat
@@ -130,7 +132,7 @@ func New(nick string, broker *room.Broker, cfg config.RoomConfig) *Screen {
 				s.channels[i].Messages = msgs
 			}
 		}
-		s.roomSub = broker.Subscribe()
+		s.roomSubID, s.roomSub = broker.Subscribe()
 	}
 	return s
 }
@@ -152,8 +154,10 @@ func (s *Screen) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// roomEventMsg wraps a broker.Event so the lobby can handle it in Update.
-type roomEventMsg room.Event
+// roomEventMsg wraps an events.Event so the lobby can handle it in Update.
+type roomEventMsg struct {
+	evt events.Event
+}
 
 // waitForRoom returns the Bubbletea command that blocks on the broker
 // subscription. Each broker event is delivered as one roomEventMsg; Update
@@ -168,7 +172,16 @@ func (s *Screen) waitForRoom() tea.Cmd {
 		if !ok {
 			return nil
 		}
-		return roomEventMsg(evt)
+		return roomEventMsg{evt: evt}
+	}
+}
+
+// Close unsubscribes from the broker. Called by the router when the
+// session ends so we don't leak channels across reconnects.
+func (s *Screen) Close() {
+	if s.broker != nil && s.roomSub != nil {
+		s.broker.Unsubscribe(s.roomSubID)
+		s.roomSub = nil
 	}
 }
 
@@ -218,7 +231,7 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		s.backdrop.SetCursor(float64(m.X), float64(m.Y))
 		return s, nil
 	case roomEventMsg:
-		s.handleRoomEvent(room.Event(m))
+		s.handleRoomEvent(m.evt)
 		s.hypeUntil = time.Now().Add(5 * time.Second)
 		s.lastChatEvent = time.Now()
 		return s, s.waitForRoom()
@@ -425,41 +438,59 @@ func (s *Screen) endBlitz(t time.Time, winner string) {
 // lobby renders the same scrollback every other session sees. Some kinds
 // (joins, mod posts) also trigger a foreground cascade so the engine
 // announces them visibly on top of the field.
-func (s *Screen) handleRoomEvent(evt room.Event) {
+func (s *Screen) handleRoomEvent(evt events.Event) {
+	switch e := evt.(type) {
+	case *events.ChatPosted:
+		s.handleChatPosted(e)
+	case *events.PresenceJoined:
+		// Phase 1: presence events are visible via the chat-side join
+		// message until a dedicated presence pane lands in Phase 3.
+	case *events.PresenceLeft:
+		// Same as PresenceJoined; rendered as chat-side noise for now.
+	case *events.ModTagged:
+		// Phase 1 mod tags are still attached inline via the
+		// ChatMessage.Tags field on the underlying ChatPosted. This
+		// branch is the hook for future explicit tag events.
+	default:
+		// Unknown events from a future build land here. Quietly drop;
+		// the broker has already persisted them.
+	}
+}
+
+// handleChatPosted is the legacy ChatMessage path under the new typed
+// envelope. Materializes the event into a ui.ChatMessage and runs the
+// existing channel-routing, blitz-scoring, and backdrop-cascade logic.
+func (s *Screen) handleChatPosted(e *events.ChatPosted) {
+	msg := e.AsChatMessage()
 	for i := range s.channels {
-		if s.channels[i].Name != evt.Channel {
+		if s.channels[i].Name != e.Channel {
 			continue
 		}
-		s.channels[i].Messages = append(s.channels[i].Messages, evt.Message)
+		s.channels[i].Messages = append(s.channels[i].Messages, msg)
 		if i == s.chatActive {
 			s.chatScroll = 0
 		}
 		break
 	}
-	if evt.Channel != s.activeChannelName() {
+	if e.Channel != s.activeChannelName() {
 		return
 	}
-	// If a blitz is in flight and the arriving message comes from a
-	// player (not the mod itself), score it against the round's target.
-	// A first-time match posts a mod ChatAction confirming +N points,
-	// which cascade-settles in via the Settle macro and gives the room
-	// a visible "you scored" beat without leaving the chat substrate.
-	if s.blitz != nil && evt.Message.Kind == ui.ChatNormal && evt.Message.Author != mod.Nick {
-		if points, matched := s.blitz.MatchScore(evt.Message.Author, evt.Message.Body); matched {
-			s.postMod(fmt.Sprintf("%s +%d", evt.Message.Author, points))
+	if s.blitz != nil && msg.Kind == ui.ChatNormal && msg.Author != mod.Nick {
+		if points, matched := s.blitz.MatchScore(msg.Author, msg.Body); matched {
+			s.postMod(fmt.Sprintf("%s +%d", msg.Author, points))
 		}
 	}
 	switch {
-	case evt.Message.Kind == ui.ChatJoin:
+	case msg.Kind == ui.ChatJoin:
 		s.backdrop.AddCascade(field.CascadeLine{
 			Row:   0,
-			Text:  evt.Message.Author + " joined",
+			Text:  msg.Author + " joined",
 			Decay: 4 * time.Second,
 		})
-	case evt.Message.Kind == ui.ChatAction && evt.Message.Author == mod.Nick:
+	case msg.Kind == ui.ChatAction && msg.Author == mod.Nick:
 		s.backdrop.AddCascade(field.CascadeLine{
 			Row:   1,
-			Text:  mod.Nick + " · " + evt.Message.Body,
+			Text:  mod.Nick + " · " + msg.Body,
 			Decay: 5 * time.Second,
 		})
 	}

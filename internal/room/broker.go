@@ -1,13 +1,23 @@
-// Package room is the shared multi-user state — chat messages broadcast
-// across sessions. Today it owns one channel (#lobby) and a single mod that
-// fires for the whole room; per-channel topic/online lists stay on the
-// lobby Screen for now.
+// Package room is the shared multi-user state at the team level. Today
+// it owns one channel (#lobby) and a single mod that fires for the
+// whole room; per-channel topic/online lists stay on the lobby Screen
+// for now.
+//
+// Phase 1 promoted the previous {Channel, Message} struct to the typed
+// events.Event interface. Every publish goes through HLC stamping, an
+// optional capability check, and broadcast to typed subscribers. The
+// in-memory message log is materialized from ChatPosted events at
+// publish time; Phase 1 commit three swaps the in-memory store for a
+// SQLite-backed Store.
 package room
 
 import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/bchayka/gitstatus/internal/events"
 	"github.com/bchayka/gitstatus/internal/mod"
 	"github.com/bchayka/gitstatus/internal/ui"
 )
@@ -17,19 +27,24 @@ type Channel struct {
 	Name string
 }
 
-// Event fires for every message published to a channel.
-type Event struct {
-	Channel string
-	Message ui.ChatMessage
+// SubscriberID identifies a subscriber so it can be removed via
+// Unsubscribe. Returned by Subscribe alongside the receive channel.
+type SubscriberID uuid.UUID
+
+// subscription bundles the receive channel with its identifier.
+type subscription struct {
+	id SubscriberID
+	ch chan events.Event
 }
 
-// Broker is the shared room state. It's safe for concurrent use; subscribers
-// each get their own buffered channel and receive events for every channel
-// the broker hosts.
+// Broker is the shared room state. It's safe for concurrent use;
+// subscribers each get their own buffered channel and receive every
+// event the broker publishes regardless of topic.
 type Broker struct {
 	mu       sync.Mutex
+	clock    *events.Clock
 	messages map[string][]ui.ChatMessage
-	subs     []chan Event
+	subs     []subscription
 	mod      *mod.Mod
 	stop     chan struct{}
 
@@ -37,19 +52,37 @@ type Broker struct {
 	// Tier() so every screen can read the room's energy level without
 	// computing its own.
 	pubTimes []time.Time
+
+	// roomID is the canonical scope for events the broker publishes.
+	// Matches the team slug (e.g., "vibespace").
+	roomID string
+
+	// modActor is the canonical Actor used by mod-originated events.
+	modActor events.Actor
 }
 
 // activityWindow is the lookback the tier classifier uses on publish times.
 const activityWindow = 10 * time.Second
 
-// New starts a broker with every seeded channel ready and a mod goroutine
-// running. Today the seeds live in room.seedMessages; future builds will
-// pull from persistent storage.
-func New() *Broker {
+// New starts a broker scoped to a single room. The roomID identifies
+// the scope on every event the broker publishes. clock is optional; a
+// fresh clock is created if nil.
+func New(roomID string, clock *events.Clock) *Broker {
+	if clock == nil {
+		clock = events.NewClock()
+	}
 	b := &Broker{
+		clock:    clock,
 		messages: map[string][]ui.ChatMessage{},
 		mod:      mod.New(),
 		stop:     make(chan struct{}),
+		roomID:   roomID,
+		modActor: events.Actor{
+			ID:          "mod:" + roomID,
+			DisplayName: mod.Nick,
+			Kind:        "agent",
+			SessionID:   uuid.Nil,
+		},
 	}
 	for ch, msgs := range seedMessages() {
 		b.messages[ch] = msgs
@@ -70,14 +103,20 @@ func (b *Broker) Channels() []string {
 	return out
 }
 
-// Stop terminates the broker's mod goroutine. Subscribers stay open; this
-// is for orderly server shutdown.
+// Stop terminates the broker's mod goroutine and closes every
+// subscriber channel.
 func (b *Broker) Stop() {
 	select {
 	case <-b.stop:
 	default:
 		close(b.stop)
 	}
+	b.mu.Lock()
+	for _, s := range b.subs {
+		close(s.ch)
+	}
+	b.subs = nil
+	b.mu.Unlock()
 }
 
 // runMod ticks the moderator at 1Hz and publishes any line it returns.
@@ -91,16 +130,16 @@ func (b *Broker) runMod() {
 			return
 		case t := <-ticker.C:
 			if line := b.mod.Tick(t); line != "" {
-				b.Publish("#lobby", ui.ChatMessage{
-					Author: mod.Nick, Body: line, At: t, Kind: ui.ChatAction,
-				})
+				evt := events.NewChatPosted(b.roomID, b.modActor, "#lobby", line, ui.ChatAction)
+				evt.At = t
+				_ = b.PublishEvent(evt)
 			}
 		}
 	}
 }
 
-// Snapshot returns a copy of the channel's scrollback. Callers can iterate
-// without holding the broker lock.
+// Snapshot returns a copy of the channel's scrollback. Callers can
+// iterate without holding the broker lock.
 func (b *Broker) Snapshot(channel string) []ui.ChatMessage {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -110,26 +149,81 @@ func (b *Broker) Snapshot(channel string) []ui.ChatMessage {
 	return out
 }
 
-// Subscribe returns a channel that receives every future Event the broker
-// publishes, regardless of channel. The subscriber inspects evt.Channel to
-// route. Send is non-blocking; if the subscriber is slow the event drops.
-func (b *Broker) Subscribe() <-chan Event {
+// Subscribe returns a SubscriberID and a channel that receives every
+// future Event the broker publishes. The subscriber type-switches on
+// the concrete event type to route. Send is non-blocking; a slow
+// subscriber sees its channel buffer fill and subsequent events
+// dropped.
+//
+// Call Unsubscribe with the returned id when the subscriber's session
+// ends. Forgetting to unsubscribe leaks a goroutine reference per
+// session.
+func (b *Broker) Subscribe() (SubscriberID, <-chan events.Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	sub := make(chan Event, 64)
-	b.subs = append(b.subs, sub)
-	return sub
+	id := SubscriberID(uuid.New())
+	ch := make(chan events.Event, 64)
+	b.subs = append(b.subs, subscription{id: id, ch: ch})
+	return id, ch
 }
 
-// Publish appends a message to the channel and broadcasts to subscribers.
-// The mod's idle clock is reset on every publish. A ChatJoin kind triggers
-// a follow-up mod welcome so other sessions see "@mod welcomes @newnick".
+// Unsubscribe removes the subscriber and closes its channel. Idempotent
+// for already-removed IDs.
+func (b *Broker) Unsubscribe(id SubscriberID) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, s := range b.subs {
+		if s.id == id {
+			close(s.ch)
+			b.subs = append(b.subs[:i], b.subs[i+1:]...)
+			return
+		}
+	}
+}
+
+// PublishEvent stamps an event with an HLC and fans it out to every
+// subscriber. The event's ID is assigned if it was zero. ChatPosted
+// events are additionally appended to the in-memory scrollback so
+// Snapshot reflects the latest state.
 //
-// Before broadcast the moderator inspects the message and may attach tags.
-// The rules-v0 detector handles questions (lines that end with '?'); future
-// rules cover URLs, code, builds, and repo drops. Tagged messages carry
-// the moderator's marker in the margin once they arrive in subscribers'
-// views.
+// Phase 1 keeps this synchronous: PublishEvent returns when fan-out is
+// complete. Future phases may move fan-out behind a writer goroutine
+// once the typed bus carries higher-rate topics (presence at 20 Hz).
+func (b *Broker) PublishEvent(evt events.Event) error {
+	if evt.Timestamp().IsZero() {
+		evt.SetStamp(b.clock.Now())
+	}
+	if evt.EventID() == uuid.Nil {
+		evt.SetID(uuid.New())
+	}
+
+	// Materialize ChatPosted into the in-memory log so existing
+	// Snapshot callers continue to see the latest scrollback. This
+	// becomes the Phase 1 commit-three Store seam.
+	if chat, ok := evt.(*events.ChatPosted); ok {
+		b.appendChat(chat)
+	}
+
+	b.mu.Lock()
+	subs := append([]subscription(nil), b.subs...)
+	b.mu.Unlock()
+	for _, s := range subs {
+		select {
+		case s.ch <- evt:
+		default:
+			// drop on full buffer; the subscriber's job to drain
+		}
+	}
+	return nil
+}
+
+// Publish is the backward-compatible entry point. It wraps a
+// ui.ChatMessage into a ChatPosted event and publishes it. The
+// moderator inspects the message and may attach tags before broadcast;
+// ChatJoin kinds trigger a follow-up welcome from the mod.
+//
+// This shim keeps existing lobby code compiling while the typed bus
+// rolls out. New code should call PublishEvent directly.
 func (b *Broker) Publish(channel string, msg ui.ChatMessage) {
 	if msg.Kind == ui.ChatNormal {
 		if tag := mod.QuestionTag(msg.Body); tag != nil {
@@ -141,31 +235,70 @@ func (b *Broker) Publish(channel string, msg ui.ChatMessage) {
 			})
 		}
 	}
-	b.publish(channel, msg)
-	if msg.Kind == ui.ChatJoin && msg.Author != "" {
-		b.publish(channel, ui.ChatMessage{
-			Author: mod.Nick,
-			Body:   b.mod.Welcome(msg.Author),
-			At:     msg.At,
-			Kind:   ui.ChatAction,
-		})
+	actor := events.Actor{
+		ID:          "legacy:" + msg.Author,
+		DisplayName: msg.Author,
+		Kind:        "human",
 	}
-}
+	evt := events.NewChatPosted(b.roomID, actor, channel, msg.Body, msg.Kind)
+	evt.At = msg.At
 
-func (b *Broker) publish(channel string, msg ui.ChatMessage) {
+	// The legacy ChatMessage carried fields the events.ChatPosted does
+	// not yet model (Tags). Persist via the legacy in-memory append so
+	// callers reading Snapshot still see Tags rendered. The event
+	// itself carries Body/Kind/At for the subscribers; the lobby's
+	// type-switch will pick up tags from the stored ChatMessage when
+	// it materializes from Snapshot.
 	b.mu.Lock()
 	b.messages[channel] = append(b.messages[channel], msg)
 	b.mod.NoteChat(msg.At)
 	b.pubTimes = append(b.pubTimes, msg.At)
 	b.trimPubTimes(msg.At)
-	subs := append([]chan Event(nil), b.subs...)
+	b.mu.Unlock()
+	_ = b.fanout(evt)
+
+	if msg.Kind == ui.ChatJoin && msg.Author != "" {
+		welcome := ui.ChatMessage{
+			Author: mod.Nick,
+			Body:   b.mod.Welcome(msg.Author),
+			At:     msg.At,
+			Kind:   ui.ChatAction,
+		}
+		b.Publish(channel, welcome)
+	}
+}
+
+// appendChat mirrors a ChatPosted into the in-memory scrollback. Holds
+// the mu lock for the append and the activity tracking.
+func (b *Broker) appendChat(chat *events.ChatPosted) {
+	msg := chat.AsChatMessage()
+	b.mu.Lock()
+	b.messages[chat.Channel] = append(b.messages[chat.Channel], msg)
+	b.mod.NoteChat(msg.At)
+	b.pubTimes = append(b.pubTimes, msg.At)
+	b.trimPubTimes(msg.At)
+	b.mu.Unlock()
+}
+
+// fanout sends an event to every subscriber without persisting. Used by
+// the legacy Publish shim which handled persistence inline above.
+func (b *Broker) fanout(evt events.Event) error {
+	if evt.Timestamp().IsZero() {
+		evt.SetStamp(b.clock.Now())
+	}
+	if evt.EventID() == uuid.Nil {
+		evt.SetID(uuid.New())
+	}
+	b.mu.Lock()
+	subs := append([]subscription(nil), b.subs...)
 	b.mu.Unlock()
 	for _, s := range subs {
 		select {
-		case s <- Event{Channel: channel, Message: msg}:
+		case s.ch <- evt:
 		default:
 		}
 	}
+	return nil
 }
 
 // trimPubTimes drops timestamps older than activityWindow. Caller holds mu.
@@ -183,10 +316,11 @@ func (b *Broker) trimPubTimes(now time.Time) {
 // Tier returns the room's current intensity tier derived from publish
 // frequency in the last activityWindow seconds. Screens read this each
 // tick to keep the field's energy aligned with the room:
-//   - 0 quiet: no activity in window
-//   - 1 reactive: 1-2 events
-//   - 2 eventful: 3-5 events
-//   - 3 hype: 6+ events
+//
+//	0 quiet: no activity in window
+//	1 reactive: 1-2 events
+//	2 eventful: 3-5 events
+//	3 hype: 6+ events
 //
 // Tier 4 (game takeover) is screen-local, not room-wide.
 func (b *Broker) Tier() int {

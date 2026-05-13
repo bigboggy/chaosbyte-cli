@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bchayka/gitstatus/internal/events"
 	"github.com/bchayka/gitstatus/internal/ui"
 )
 
@@ -12,35 +13,39 @@ import (
 // receive the event. Catches regressions on the multi-user wiring that
 // the user can't see from a single local TUI.
 func TestBrokerBroadcasts(t *testing.T) {
-	b := New()
+	b := New("vibespace", nil)
 	defer b.Stop()
 
-	alice := b.Subscribe()
-	bob := b.Subscribe()
+	_, alice := b.Subscribe()
+	_, bob := b.Subscribe()
 
 	msg := ui.ChatMessage{
 		Author: "@alice", Body: "hello", At: time.Now(), Kind: ui.ChatNormal,
 	}
 	b.Publish("#lobby", msg)
 
-	got := func(name string, sub <-chan Event) Event {
+	got := func(name string, sub <-chan events.Event) *events.ChatPosted {
 		t.Helper()
 		select {
 		case evt := <-sub:
-			return evt
+			chat, ok := evt.(*events.ChatPosted)
+			if !ok {
+				t.Fatalf("%s expected ChatPosted, got %T", name, evt)
+			}
+			return chat
 		case <-time.After(200 * time.Millisecond):
 			t.Fatalf("%s never received the published event", name)
 		}
-		return Event{}
+		return nil
 	}
 
 	evtA := got("alice", alice)
 	evtB := got("bob", bob)
-	if evtA.Channel != "#lobby" || evtA.Message.Body != "hello" {
-		t.Errorf("alice got %+v", evtA)
+	if evtA.Channel != "#lobby" || evtA.Body != "hello" {
+		t.Errorf("alice got channel=%q body=%q", evtA.Channel, evtA.Body)
 	}
-	if evtB.Channel != "#lobby" || evtB.Message.Body != "hello" {
-		t.Errorf("bob got %+v", evtB)
+	if evtB.Channel != "#lobby" || evtB.Body != "hello" {
+		t.Errorf("bob got channel=%q body=%q", evtB.Channel, evtB.Body)
 	}
 }
 
@@ -48,24 +53,29 @@ func TestBrokerBroadcasts(t *testing.T) {
 // welcome when a ChatJoin message lands. Without this every SSH user
 // would slip in silently from the other sessions' POV.
 func TestBrokerJoinAutoWelcomes(t *testing.T) {
-	b := New()
+	b := New("vibespace", nil)
 	defer b.Stop()
 
-	sub := b.Subscribe()
+	_, sub := b.Subscribe()
 	b.Publish("#lobby", ui.ChatMessage{
 		Author: "@alice", Body: "entered the chat", At: time.Now(), Kind: ui.ChatJoin,
 	})
 
 	// Drain the join, then expect the auto-welcome from the mod.
-	join := <-sub
-	if join.Message.Kind != ui.ChatJoin {
-		t.Fatalf("first event should be the join, got kind=%v", join.Message.Kind)
+	first := <-sub
+	join, ok := first.(*events.ChatPosted)
+	if !ok || join.MessageKind != ui.ChatJoin {
+		t.Fatalf("first event should be the join ChatPosted, got %T kind=%v", first, join.MessageKind)
 	}
 
 	select {
-	case welcome := <-sub:
-		if welcome.Message.Kind != ui.ChatAction {
-			t.Errorf("welcome should be ChatAction, got %v", welcome.Message.Kind)
+	case raw := <-sub:
+		welcome, ok := raw.(*events.ChatPosted)
+		if !ok {
+			t.Fatalf("welcome should be ChatPosted, got %T", raw)
+		}
+		if welcome.MessageKind != ui.ChatAction {
+			t.Errorf("welcome should be ChatAction, got %v", welcome.MessageKind)
 		}
 		if welcome.Channel != "#lobby" {
 			t.Errorf("welcome channel = %q, want #lobby", welcome.Channel)
@@ -79,7 +89,7 @@ func TestBrokerJoinAutoWelcomes(t *testing.T) {
 // pushes Tier() up to 3, and dropping the activity returns it toward 0
 // once the publish window slides past.
 func TestBrokerTierClimbsWithChat(t *testing.T) {
-	b := New()
+	b := New("vibespace", nil)
 	defer b.Stop()
 
 	if got := b.Tier(); got != 0 {
@@ -94,5 +104,57 @@ func TestBrokerTierClimbsWithChat(t *testing.T) {
 	}
 	if got := b.Tier(); got != 3 {
 		t.Errorf("after 6-burst Tier() = %d, want 3", got)
+	}
+}
+
+// TestBrokerUnsubscribe confirms the new SubscriberID + Unsubscribe path
+// closes the subscriber's channel and stops delivering events to it.
+func TestBrokerUnsubscribe(t *testing.T) {
+	b := New("vibespace", nil)
+	defer b.Stop()
+
+	id, sub := b.Subscribe()
+	b.Unsubscribe(id)
+
+	// Channel should be closed.
+	select {
+	case _, ok := <-sub:
+		if ok {
+			t.Fatal("expected closed channel, got an event")
+		}
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("channel was not closed after Unsubscribe")
+	}
+
+	// Re-publishing should not block or panic.
+	b.Publish("#lobby", ui.ChatMessage{
+		Author: "@alice", Body: "after unsub", At: time.Now(), Kind: ui.ChatNormal,
+	})
+}
+
+// TestBrokerHLCStamping confirms events get an HLC assigned on publish.
+func TestBrokerHLCStamping(t *testing.T) {
+	b := New("vibespace", nil)
+	defer b.Stop()
+
+	_, sub := b.Subscribe()
+
+	evt := events.NewChatPosted("vibespace", events.Actor{
+		ID: "pk:test", DisplayName: "@test", Kind: "human",
+	}, "#lobby", "hello", ui.ChatNormal)
+
+	if !evt.Timestamp().IsZero() {
+		t.Fatal("pre-publish timestamp should be zero")
+	}
+	if err := b.PublishEvent(evt); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	got := <-sub
+	if got.Timestamp().IsZero() {
+		t.Fatal("post-publish timestamp should be set")
+	}
+	if got.EventID().String() == "00000000-0000-0000-0000-000000000000" {
+		t.Fatal("post-publish ID should be set")
 	}
 }

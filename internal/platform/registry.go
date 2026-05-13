@@ -56,7 +56,7 @@ func (r *Registry) Register(cfg config.RoomConfig) {
 	defer r.mu.Unlock()
 	r.configs[cfg.Slug] = cfg
 	if _, ok := r.brokers[cfg.Slug]; !ok {
-		r.brokers[cfg.Slug] = room.New()
+		r.brokers[cfg.Slug] = room.New(cfg.Slug, nil)
 	}
 }
 
