@@ -550,16 +550,18 @@ func (s *Screen) View(width, height int) string {
 }
 
 func topBar(ch Channel, width int) string {
-	chName := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render(ch.Name)
-	online := lipgloss.NewStyle().Foreground(theme.OK).Render(fmt.Sprintf("%d online", ch.Online))
-	topic := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
-		Render("topic: " + ch.Topic)
+	brand := lipgloss.NewStyle().Foreground(theme.Fg).Bold(true).Render("chaosbyte")
+	tonight := lipgloss.NewStyle().Foreground(theme.Accent2).Render("TONIGHT")
+	spotlight := lipgloss.NewStyle().Foreground(theme.Fg).Bold(true).Render("tinytty")
+	by := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("by rin")
+	online := lipgloss.NewStyle().Foreground(theme.Muted).
+		Render(fmt.Sprintf("%d here", ch.Online))
 	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render("  ·  ")
-	left := chName + sep + online + sep + topic
-	if lipgloss.Width(left) > width {
-		left = ui.Truncate(left, width)
+	bar := brand + sep + tonight + " " + spotlight + " " + by + sep + online
+	if lipgloss.Width(bar) > width {
+		bar = ui.Truncate(bar, width)
 	}
-	return left
+	return bar
 }
 
 // composeTransformOverlay renders active CellTransforms over the chat
