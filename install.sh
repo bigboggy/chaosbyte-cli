@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# install.sh — install chaosbyte to $HOME/.local/bin
-# Usage: curl -fsSL https://raw.githubusercontent.com/bigboggy/chaosbyte-cli/main/install.sh | bash
+# install.sh — install vibespace to $HOME/.local/bin
+# Usage: curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace/main/install.sh | bash
 #        bash install.sh --uninstall
 
 set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
-REPO="bigboggy/chaosbyte-cli"
+REPO="bigboggy/vibespace"
 INSTALL_DIR="$HOME/.local/bin"
-BINARY_NAME="chaosbyte"
+BINARY_NAME="vibespace"
 VERSION="${VERSION:-latest}"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
