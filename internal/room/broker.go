@@ -12,6 +12,7 @@
 package room
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/capability"
 	"github.com/bchayka/gitstatus/internal/events"
 	"github.com/bchayka/gitstatus/internal/mod"
+	"github.com/bchayka/gitstatus/internal/store"
 	"github.com/bchayka/gitstatus/internal/ui"
 )
 
@@ -46,6 +48,7 @@ type Broker struct {
 	mu       sync.Mutex
 	clock    *events.Clock
 	verifier *capability.Issuer
+	store    store.Store
 	messages map[string][]ui.ChatMessage
 	subs     []subscription
 	mod      *mod.Mod
@@ -72,13 +75,24 @@ const activityWindow = 10 * time.Second
 // fresh clock is created if nil. verifier is optional; when nil the
 // broker skips capability checks (Phase 1 behavior). When set, every
 // PublishEvent with a non-nil CapabilityProof is verified before fan-out.
-func New(roomID string, clock *events.Clock, verifier *capability.Issuer) *Broker {
+// st is optional; when nil the broker keeps state in memory only and
+// nothing survives restart. When set, every PublishEvent persists via
+// st.AppendEvent before fan-out.
+func New(roomID string, clock *events.Clock, verifier *capability.Issuer, st store.Store) *Broker {
 	if clock == nil {
 		clock = events.NewClock()
+	}
+	// If the store has prior events, advance the clock past the
+	// highest persisted timestamp so the next stamp does not collide.
+	if st != nil {
+		if latest, err := st.LatestHLC(context.Background(), roomID); err == nil && !latest.IsZero() {
+			clock.Update(latest)
+		}
 	}
 	b := &Broker{
 		clock:    clock,
 		verifier: verifier,
+		store:    st,
 		messages: map[string][]ui.ChatMessage{},
 		mod:      mod.New(),
 		stop:     make(chan struct{}),
@@ -219,9 +233,17 @@ func (b *Broker) PublishEvent(evt events.Event) error {
 		}
 	}
 
+	// Persist before fan-out so a crash mid-publish never loses the
+	// event. Subscribers never see an event that does not exist in
+	// the durable log.
+	if b.store != nil {
+		if err := b.store.AppendEvent(context.Background(), evt); err != nil {
+			return err
+		}
+	}
+
 	// Materialize ChatPosted into the in-memory log so existing
-	// Snapshot callers continue to see the latest scrollback. This
-	// becomes the Phase 1 commit-three Store seam.
+	// Snapshot callers continue to see the latest scrollback.
 	if chat, ok := evt.(*events.ChatPosted); ok {
 		b.appendChat(chat)
 	}

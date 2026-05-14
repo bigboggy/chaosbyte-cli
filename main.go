@@ -16,6 +16,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/config"
 	"github.com/bchayka/gitstatus/internal/identity"
 	"github.com/bchayka/gitstatus/internal/room"
+	"github.com/bchayka/gitstatus/internal/store/memory"
 	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -31,7 +32,7 @@ func main() {
 		BorderHi: cfg.Theme.BorderHi,
 		BorderLo: cfg.Theme.BorderLo,
 	})
-	broker := room.New(cfg.Slug, nil, nil)
+	broker := room.New(cfg.Slug, nil, nil, memory.New())
 	defer broker.Stop()
 	principal := identity.LocalPrincipal()
 	p := tea.NewProgram(app.New(principal, broker, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())

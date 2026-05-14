@@ -23,6 +23,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/capability"
 	"github.com/bchayka/gitstatus/internal/config"
 	"github.com/bchayka/gitstatus/internal/room"
+	"github.com/bchayka/gitstatus/internal/store"
 )
 
 // Registry holds the active set of teams and routes incoming connections
@@ -33,17 +34,20 @@ type Registry struct {
 	configs      map[string]config.RoomConfig
 	brokers      map[string]*room.Broker
 	verifier     *capability.Issuer
+	store        store.Store
 }
 
 // NewRegistry builds a registry seeded with the flagship Vibespace. The
 // flagship's slug is whatever DefaultVibespace returns ("vibespace" today).
 // Use Register to add more teams. verifier is optional; when set, every
-// per-team broker uses it for capability checks.
-func NewRegistry(verifier *capability.Issuer) *Registry {
+// per-team broker uses it for capability checks. st is optional; when set,
+// every per-team broker persists events through it.
+func NewRegistry(verifier *capability.Issuer, st store.Store) *Registry {
 	r := &Registry{
 		configs:  map[string]config.RoomConfig{},
 		brokers:  map[string]*room.Broker{},
 		verifier: verifier,
+		store:    st,
 	}
 	flagship := config.DefaultVibespace()
 	r.flagshipSlug = flagship.Slug
@@ -60,7 +64,7 @@ func (r *Registry) Register(cfg config.RoomConfig) {
 	defer r.mu.Unlock()
 	r.configs[cfg.Slug] = cfg
 	if _, ok := r.brokers[cfg.Slug]; !ok {
-		r.brokers[cfg.Slug] = room.New(cfg.Slug, nil, r.verifier)
+		r.brokers[cfg.Slug] = room.New(cfg.Slug, nil, r.verifier, r.store)
 	}
 }
 

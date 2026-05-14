@@ -13,7 +13,7 @@ import (
 // receive the event. Catches regressions on the multi-user wiring that
 // the user can't see from a single local TUI.
 func TestBrokerBroadcasts(t *testing.T) {
-	b := New("vibespace", nil, nil)
+	b := New("vibespace", nil, nil, nil)
 	defer b.Stop()
 
 	_, alice := b.Subscribe()
@@ -53,7 +53,7 @@ func TestBrokerBroadcasts(t *testing.T) {
 // welcome when a ChatJoin message lands. Without this every SSH user
 // would slip in silently from the other sessions' POV.
 func TestBrokerJoinAutoWelcomes(t *testing.T) {
-	b := New("vibespace", nil, nil)
+	b := New("vibespace", nil, nil, nil)
 	defer b.Stop()
 
 	_, sub := b.Subscribe()
@@ -89,7 +89,7 @@ func TestBrokerJoinAutoWelcomes(t *testing.T) {
 // pushes Tier() up to 3, and dropping the activity returns it toward 0
 // once the publish window slides past.
 func TestBrokerTierClimbsWithChat(t *testing.T) {
-	b := New("vibespace", nil, nil)
+	b := New("vibespace", nil, nil, nil)
 	defer b.Stop()
 
 	if got := b.Tier(); got != 0 {
@@ -110,7 +110,7 @@ func TestBrokerTierClimbsWithChat(t *testing.T) {
 // TestBrokerUnsubscribe confirms the new SubscriberID + Unsubscribe path
 // closes the subscriber's channel and stops delivering events to it.
 func TestBrokerUnsubscribe(t *testing.T) {
-	b := New("vibespace", nil, nil)
+	b := New("vibespace", nil, nil, nil)
 	defer b.Stop()
 
 	id, sub := b.Subscribe()
@@ -134,7 +134,7 @@ func TestBrokerUnsubscribe(t *testing.T) {
 
 // TestBrokerHLCStamping confirms events get an HLC assigned on publish.
 func TestBrokerHLCStamping(t *testing.T) {
-	b := New("vibespace", nil, nil)
+	b := New("vibespace", nil, nil, nil)
 	defer b.Stop()
 
 	_, sub := b.Subscribe()

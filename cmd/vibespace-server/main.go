@@ -28,6 +28,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/config"
 	"github.com/bchayka/gitstatus/internal/identity"
 	"github.com/bchayka/gitstatus/internal/platform"
+	"github.com/bchayka/gitstatus/internal/store/sqlite"
 	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -48,6 +49,7 @@ func main() {
 	configsDir := flag.String("configs", "configs", "directory containing per-team .toml config files")
 	keyfile := flag.String("keyfile", "configs/keys/allowlist.toml", "path to the pubkey allowlist")
 	biscuitKeyPath := flag.String("biscuit-key", "configs/keys/biscuit-root.key", "path to the biscuit root keypair (auto-generated if missing)")
+	dbPath := flag.String("db", "vibespace.db", "path to the SQLite event log")
 	flag.Parse()
 
 	allowlist, err := identity.LoadAllowlist(*keyfile)
@@ -70,7 +72,15 @@ func main() {
 	}
 	log.Info("capability issuer ready")
 
-	registry := platform.NewRegistry(issuer)
+	st, err := sqlite.Open(*dbPath)
+	if err != nil {
+		log.Error("could not open event log", "path", *dbPath, "error", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+	log.Info("event log open", "path", *dbPath)
+
+	registry := platform.NewRegistry(issuer, st)
 	if loaded, err := config.LoadFromDir(*configsDir); err != nil {
 		log.Warn("could not read configs directory", "dir", *configsDir, "error", err)
 	} else {
