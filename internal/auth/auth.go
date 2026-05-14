@@ -69,3 +69,8 @@ func (s *Service) PollFlow(ctx context.Context, deviceCode string, interval time
 func (s *Service) Link(fingerprint, ghLogin string) error {
 	return s.store.Link(fingerprint, ghLogin)
 }
+
+// Unlink removes the stored mapping for fingerprint.
+func (s *Service) Unlink(fingerprint string) error {
+	return s.store.Unlink(fingerprint)
+}

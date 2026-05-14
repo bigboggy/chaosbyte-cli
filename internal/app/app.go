@@ -23,13 +23,14 @@ type App struct {
 	width, height int
 }
 
-// New constructs a session app. meUser is the participant's display name
-// (e.g. "@boggy"); fingerprint is the SSH pubkey fingerprint (may be empty);
-// h is the shared chat backend; authSvc may be nil to disable /auth. The
-// intro screen is the initial active screen; it emits Navigate(lobby) when
-// its animation ends.
-func New(meUser, fingerprint string, h *hub.Hub, authSvc *auth.Service) *App {
-	lob := lobby.New(meUser, fingerprint, h, authSvc)
+// New constructs a session app. fallbackUser is the SSH-derived nick used
+// when the user isn't (yet) authenticated; fingerprint is the SSH pubkey
+// fingerprint (may be empty); ghLogin is a pre-existing GitHub link from the
+// identity store (may be empty); h is the shared chat backend; authSvc may
+// be nil to disable /auth. The intro screen is the initial active screen;
+// it emits Navigate(lobby) when its animation ends.
+func New(fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service) *App {
+	lob := lobby.New(fallbackUser, fingerprint, ghLogin, h, authSvc)
 	return &App{
 		screens: map[string]screens.Screen{
 			screens.IntroID: intro.New(),

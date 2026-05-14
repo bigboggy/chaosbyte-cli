@@ -15,15 +15,16 @@ type command struct {
 }
 
 // builtins is the canonical list of slash commands. Order here is the order
-// shown in autocomplete. Aliases are wired in `aliases` and don't appear here
-// to keep the suggestion strip tidy.
+// shown in autocomplete. /auth and /logout are mutually exclusive — the
+// palette hides whichever doesn't match the current auth state.
 var builtins = []command{
 	{"/join", "join or switch channel"},
 	{"/leave", "return to #lobby"},
 	{"/list", "list channels"},
 	{"/who", "list users in this channel"},
 	{"/me", "third-person action"},
-	{"/auth", "link a GitHub account (/auth github)"},
+	{"/auth", "link your GitHub account"},
+	{"/logout", "unlink your GitHub account"},
 	{"/clear", "clear scrollback"},
 	{"/help", "show all commands"},
 	{"/quit", "exit vibespace"},
@@ -36,6 +37,16 @@ var aliases = map[string]string{
 	"/channels": "/list",
 	"/users":    "/who",
 	"/?":        "/help",
+	"/signout":  "/logout",
+}
+
+// allowedWhenGated lists commands that work even when the session hasn't
+// authenticated yet. Everything else returns a "type /auth" hint.
+var allowedWhenGated = map[string]bool{
+	"/auth":  true,
+	"/help":  true,
+	"/quit":  true,
+	"/clear": true,
 }
 
 func canonicalName(name string) string {
@@ -45,6 +56,22 @@ func canonicalName(name string) string {
 	return name
 }
 
+// commandHidden reports whether a builtin should be omitted from autocomplete
+// in the current state. Used to flip between /auth and /logout depending on
+// whether the user is linked.
+func (s *Screen) commandHidden(name string) bool {
+	switch name {
+	case "/auth":
+		// Hide once the user is linked; /logout takes its slot.
+		return s.ghLogin != ""
+	case "/logout":
+		// Hide when there's nothing to log out of. Also hide when /auth isn't
+		// even configured server-side (local mode).
+		return s.auth == nil || s.ghLogin == ""
+	}
+	return false
+}
+
 func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 	parts := strings.Fields(text)
 	if len(parts) == 0 {
@@ -52,6 +79,11 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 	}
 	name := canonicalName(parts[0])
 	args := parts[1:]
+
+	if s.authRequired() && !allowedWhenGated[name] {
+		s.postSystem("type /auth to authenticate first")
+		return s, nil
+	}
 
 	switch name {
 	case "/help":
@@ -72,7 +104,9 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 	case "/who":
 		return s.cmdWho()
 	case "/auth":
-		return s.cmdAuth(args)
+		return s.cmdAuthGithub()
+	case "/logout":
+		return s.cmdLogout()
 	}
 	s.postSystem(fmt.Sprintf("unknown command %q — try /help", parts[0]))
 	return s, nil
@@ -85,6 +119,9 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 func (s *Screen) cmdHelp() (*Screen, tea.Cmd) {
 	lines := []string{"available commands:"}
 	for _, c := range builtins {
+		if s.commandHidden(c.name) {
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("  %-13s %s", c.name, c.desc))
 	}
 	lines = append(lines, "ctrl+c quits")
@@ -96,7 +133,8 @@ func (s *Screen) cmdHelp() (*Screen, tea.Cmd) {
 // session by jumping scroll past the end. The hub still holds the history.
 func (s *Screen) cmdClear() (*Screen, tea.Cmd) {
 	msgs, _ := s.hub.Messages(s.activeName)
-	s.chatScroll = len(msgs)
+	s.chatScroll = len(msgs) + len(s.localMessages)
+	s.localMessages = nil
 	return s, nil
 }
 
@@ -161,16 +199,22 @@ func (s *Screen) cmdWho() (*Screen, tea.Cmd) {
 	return s, nil
 }
 
-func (s *Screen) cmdAuth(args []string) (*Screen, tea.Cmd) {
-	if len(args) == 0 {
-		s.postSystem("usage: /auth github")
+func (s *Screen) cmdLogout() (*Screen, tea.Cmd) {
+	if s.ghLogin == "" {
+		s.postSystem("you're not authenticated")
 		return s, nil
 	}
-	switch strings.ToLower(args[0]) {
-	case "github", "gh":
-		return s.cmdAuthGithub()
-	default:
-		s.postSystem("unknown provider — only `github` is supported")
-		return s, nil
+	if s.auth != nil && s.fingerprint != "" {
+		if err := s.auth.Unlink(s.fingerprint); err != nil {
+			s.postSystem("failed to unlink: " + err.Error())
+			return s, nil
+		}
 	}
+	prev := s.meUser
+	s.ghLogin = ""
+	s.meUser = s.fallbackUser
+	s.hub.Post(s.activeName, "*",
+		fmt.Sprintf("%s logged out, now %s", prev, s.meUser),
+		ui.ChatSystem)
+	return s, nil
 }

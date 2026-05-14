@@ -58,7 +58,8 @@ Type `/` and Tab to cycle suggestions.
 /list          list channels
 /who           list users
 /me <action>   third-person action
-/auth github   link a GitHub account (server-side only)
+/auth          link your GitHub account (server-side only)
+/logout        unlink your GitHub account
 /clear         clear scrollback
 /help          show all commands
 /quit          exit vibespace
@@ -67,11 +68,18 @@ Type `/` and Tab to cycle suggestions.
 Aliases: `/exit` / `/bye` → `/quit`, `/part` → `/leave`, `/channels` → `/list`,
 `/users` → `/who`, `/?` → `/help`.
 
-`/auth github` runs GitHub's [device authorization flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow):
+`/auth` runs GitHub's [device authorization flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow):
 the server shows you a short code, you paste it at https://github.com/login/device,
 and on success your SSH public key is linked to your GitHub login. Future
 connections from the same key pick up the GitHub handle automatically. Only
 the (fingerprint, login) pair is stored — no access tokens are persisted.
+
+When a server has GitHub auth configured (`VIBESPACE_GH_CLIENT_ID` set), the
+lobby is **read-only until you authenticate**: you can see existing messages
+but can't send, join channels, or run other commands. The input placeholder
+nudges you to `/auth`. After you authenticate, the slash palette swaps `/auth`
+out for `/logout`, which unlinks your key from the GitHub identity (next
+connection starts as a guest again).
 
 ---
 

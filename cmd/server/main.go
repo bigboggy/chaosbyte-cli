@@ -138,17 +138,15 @@ func teaHandler(world *hub.Hub, authSvc *auth.Service, active *atomic.Int64, max
 		}
 
 		fingerprint := pubkeyFingerprint(sess)
-		nick := sshUser(sess)
-		// A linked GitHub identity overrides the SSH-derived nick — it's the
-		// stronger claim (the user proved control of the GitHub account in a
-		// past session).
+		fallback := sshUser(sess)
+		// Pre-existing GitHub link (if any) — the lobby will start the user
+		// as @<ghlogin> and unlock chat without requiring /auth again.
+		ghLogin := ""
 		if authSvc != nil {
-			if gh := authSvc.Lookup(fingerprint); gh != "" {
-				nick = "@" + gh
-			}
+			ghLogin = authSvc.Lookup(fingerprint)
 		}
 
-		a := app.New(nick, fingerprint, world, authSvc)
+		a := app.New(fallback, fingerprint, ghLogin, world, authSvc)
 
 		// Cleanup on session end: SSH closes ctx -> unsubscribe + free slot.
 		go func() {

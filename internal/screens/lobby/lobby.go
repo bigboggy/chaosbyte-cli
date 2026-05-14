@@ -11,6 +11,7 @@ package lobby
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bchayka/gitstatus/internal/auth"
 	"github.com/bchayka/gitstatus/internal/hub"
@@ -24,45 +25,75 @@ import (
 
 // Screen is the lobby's session-local state. Channels and messages live in the
 // hub; the lobby reads from it during View and on every hub Event.
+//
+// Identity model:
+//   - fallbackUser is the SSH-derived nick the session falls back to when not
+//     authenticated (e.g. "@bogdan" or "@guest-abc12").
+//   - ghLogin is the linked GitHub login, "" when not authenticated.
+//   - meUser is the active display nick — it tracks ghLogin (prefixed with @)
+//     when set, otherwise fallbackUser.
+//
+// When auth is configured server-side (auth != nil) and ghLogin == "", the
+// session is "gated" — read-only chat, only /auth/help/quit/clear work.
 type Screen struct {
 	hub    *hub.Hub
 	subID  uint64
 	events <-chan hub.Event
 
-	auth        *auth.Service // nil disables /auth
+	auth        *auth.Service // nil disables /auth + the gating
 	fingerprint string        // SSH pubkey fingerprint; "" if no key
 
-	meUser     string
-	activeName string // currently-viewed channel name; defaults to "#lobby"
-	chatScroll int
+	fallbackUser string
+	ghLogin      string // "" when not authenticated via GitHub
+	meUser       string
+	activeName   string // currently-viewed channel name; defaults to "#lobby"
+	chatScroll   int
 
 	input      textinput.Model
 	history    []string
 	historyIdx int
 	paletteIdx int
 
+	// localMessages are system messages addressed only to this session
+	// (command output, error hints). They never reach the hub.
+	localMessages []ui.ChatMessage
+
 	joinPosted bool
 	authFlow   *authFlowState
 }
 
-// New constructs a lobby bound to hub. meUser is the participant's display
-// handle (e.g. "@boggy"). fingerprint is the SSH pubkey fingerprint used to
-// associate this session with a stored identity (may be ""). authSvc may be
-// nil to disable /auth. The session subscribes to the hub immediately; call
-// Cleanup when the session ends.
-func New(meUser, fingerprint string, h *hub.Hub, authSvc *auth.Service) *Screen {
+// New constructs a lobby bound to hub. fallbackUser is the SSH-derived nick
+// to use when not authenticated. fingerprint is the SSH pubkey fingerprint
+// (may be ""). ghLogin is a pre-existing GitHub link from the identity store
+// (may be ""). authSvc may be nil to disable /auth entirely. The session
+// subscribes to the hub immediately; call Cleanup when the session ends.
+func New(fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service) *Screen {
 	id, events := h.Subscribe()
 	h.SetViewing(id, "#lobby")
-	return &Screen{
-		hub:         h,
-		subID:       id,
-		events:      events,
-		auth:        authSvc,
-		fingerprint: fingerprint,
-		meUser:      meUser,
-		activeName:  "#lobby",
-		input:       newInput(),
+	me := fallbackUser
+	if ghLogin != "" {
+		me = "@" + ghLogin
 	}
+	return &Screen{
+		hub:          h,
+		subID:        id,
+		events:       events,
+		auth:         authSvc,
+		fingerprint:  fingerprint,
+		fallbackUser: fallbackUser,
+		ghLogin:      ghLogin,
+		meUser:       me,
+		activeName:   "#lobby",
+		input:        newInput(),
+	}
+}
+
+// authRequired reports whether the current session is gated behind /auth.
+// Only true when GitHub auth is configured server-side AND the user hasn't
+// linked an identity yet. Local mode and servers without a client id always
+// return false.
+func (s *Screen) authRequired() bool {
+	return s.auth != nil && s.ghLogin == ""
 }
 
 func newInput() textinput.Model {
@@ -229,6 +260,11 @@ func (s *Screen) submit() (screens.Screen, tea.Cmd) {
 	if strings.HasPrefix(text, "/") {
 		return s.handleSlash(text)
 	}
+	// Gated sessions can only run /auth (and a few harmless commands). Regular
+	// chat is silently dropped — the placeholder tells the user why.
+	if s.authRequired() {
+		return s, nil
+	}
 	s.postUser(text)
 	return s, nil
 }
@@ -266,16 +302,16 @@ func (s *Screen) postUser(body string) {
 	s.chatScroll = 0
 }
 
-// postSystem posts a system message that only THIS session sees. Used for
-// command output (e.g. /help, /list responses) — these aren't broadcast.
-//
-// Because the screen has no local message buffer, system messages would be
-// invisible without a stash. We funnel them into the hub as a transient
-// "system" message visible to everyone, which is intentional: the chat is
-// public and seeing other people's /help output is part of the vibe.
+// postSystem posts a system message that ONLY this session sees. Used for
+// command output (/help, /list) and error hints (unknown command, auth
+// required). The message lands in s.localMessages and is rendered at the tail
+// of the active channel's scrollback; it never reaches the hub.
 func (s *Screen) postSystem(body string) {
+	now := time.Now()
 	for _, line := range strings.Split(body, "\n") {
-		s.hub.Post(s.activeName, "*", line, ui.ChatSystem)
+		s.localMessages = append(s.localMessages, ui.ChatMessage{
+			Author: "*", Body: line, At: now, Kind: ui.ChatSystem,
+		})
 	}
 	s.chatScroll = 0
 }
@@ -311,6 +347,13 @@ func (s *Screen) View(width, height int) string {
 	bar := topBar(s.activeName, s.hub.Online(s.activeName), contentW)
 	barH := lipgloss.Height(bar)
 
+	// Placeholder communicates gated state to the user; no other affordance.
+	if s.authRequired() {
+		s.input.Placeholder = "type /auth to authenticate and send messages"
+	} else {
+		s.input.Placeholder = "message " + s.activeName + " or type /help"
+	}
+
 	prompt := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
 		Render("[" + strings.TrimPrefix(s.meUser, "@") + "]> ")
 	s.input.Width = contentW - lipgloss.Width(prompt) - 1
@@ -327,6 +370,12 @@ func (s *Screen) View(width, height int) string {
 	msgs, _ := s.hub.Messages(s.activeName)
 	var lines []string
 	for _, msg := range msgs {
+		lines = append(lines, ui.RenderChatLine(msg, contentW)...)
+	}
+	// Local-only system messages (command output, hints) appear at the tail of
+	// the scrollback; they're not broadcast and don't move when the user
+	// switches channels.
+	for _, msg := range s.localMessages {
 		lines = append(lines, ui.RenderChatLine(msg, contentW)...)
 	}
 	visible := windowScrollback(lines, chatH, s.chatScroll)

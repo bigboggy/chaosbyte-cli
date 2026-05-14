@@ -63,6 +63,26 @@ func (s *Store) Lookup(fingerprint string) (string, bool) {
 	return v, ok
 }
 
+// Unlink removes the mapping for fingerprint and persists. No-op if the
+// fingerprint wasn't linked.
+func (s *Store) Unlink(fingerprint string) error {
+	if fingerprint == "" {
+		return errors.New("empty fingerprint")
+	}
+	s.mu.Lock()
+	if _, ok := s.data[fingerprint]; !ok {
+		s.mu.Unlock()
+		return nil
+	}
+	delete(s.data, fingerprint)
+	clone := make(map[string]string, len(s.data))
+	for k, v := range s.data {
+		clone[k] = v
+	}
+	s.mu.Unlock()
+	return s.writeAtomic(clone)
+}
+
 // Link stores fingerprint -> ghLogin and persists. Overwrites any prior
 // mapping for the same fingerprint.
 func (s *Store) Link(fingerprint, ghLogin string) error {

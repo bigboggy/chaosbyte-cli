@@ -48,6 +48,10 @@ func (s *Screen) cmdAuthGithub() (*Screen, tea.Cmd) {
 		s.postSystem("github auth isn't configured on this server")
 		return s, nil
 	}
+	if s.ghLogin != "" {
+		s.postSystem(fmt.Sprintf("already authenticated as @%s — /logout to unlink", s.ghLogin))
+		return s, nil
+	}
 	if s.fingerprint == "" {
 		s.postSystem("you connected without an SSH key — reconnect with `ssh -i <key>` to use /auth")
 		return s, nil
@@ -121,13 +125,15 @@ func (s *Screen) handleAuthResult(m authResultMsg) (*Screen, tea.Cmd) {
 
 	prev := s.meUser
 	newNick := "@" + m.ghUser
-	s.meUser = newNick
 
 	if err := s.auth.Link(s.fingerprint, m.ghUser); err != nil {
-		s.authFlow.status = "linked nick but failed to persist: " + err.Error()
+		s.authFlow.status = "failed to persist: " + err.Error()
 		s.authFlow.failed = true
 		return s, nil
 	}
+
+	s.meUser = newNick
+	s.ghLogin = m.ghUser
 
 	if s.authFlow.cancel != nil {
 		s.authFlow.cancel()

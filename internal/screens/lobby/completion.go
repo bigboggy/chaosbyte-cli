@@ -17,13 +17,17 @@ const palettePageSize = 10
 const commandColWidth = 10
 
 // matchCommands returns canonical commands whose names start with prefix.
-// Aliases are excluded so the palette stays compact.
-func matchCommands(prefix string) []string {
+// Aliases are excluded so the palette stays compact, and state-hidden
+// commands (the inactive one of /auth vs /logout) are skipped.
+func (s *Screen) matchCommands(prefix string) []string {
 	if !strings.HasPrefix(prefix, "/") {
 		return nil
 	}
 	var out []string
 	for _, c := range builtins {
+		if s.commandHidden(c.name) {
+			continue
+		}
 		if strings.HasPrefix(c.name, prefix) {
 			out = append(out, c.name)
 		}
@@ -44,7 +48,7 @@ func commandDesc(name string) string {
 // when the input isn't a slash command, has no matches, or already exactly
 // equals the only match (nothing left to suggest).
 func (s *Screen) paletteVisible() bool {
-	matches := matchCommands(s.input.Value())
+	matches := s.matchCommands(s.input.Value())
 	if len(matches) == 0 {
 		return false
 	}
@@ -57,7 +61,7 @@ func (s *Screen) paletteVisible() bool {
 // movePalette shifts the highlighted match by delta (+1 down, -1 up), wrapping
 // at both ends.
 func (s *Screen) movePalette(delta int) {
-	matches := matchCommands(s.input.Value())
+	matches := s.matchCommands(s.input.Value())
 	if len(matches) == 0 {
 		return
 	}
@@ -73,7 +77,7 @@ func (s *Screen) resetPalette() {
 // fillPalette replaces the input with the highlighted match, without
 // submitting. Used by Tab so the user can fill in a command then type args.
 func (s *Screen) fillPalette() {
-	matches := matchCommands(s.input.Value())
+	matches := s.matchCommands(s.input.Value())
 	if len(matches) == 0 {
 		return
 	}
@@ -90,7 +94,7 @@ func (s *Screen) acceptPalette() string {
 	if !s.paletteVisible() {
 		return ""
 	}
-	matches := matchCommands(s.input.Value())
+	matches := s.matchCommands(s.input.Value())
 	if len(matches) == 0 {
 		return ""
 	}
@@ -110,7 +114,7 @@ func (s *Screen) paletteHeight() int {
 	if !s.paletteVisible() {
 		return 0
 	}
-	n := len(matchCommands(s.input.Value()))
+	n := len(s.matchCommands(s.input.Value()))
 	if n > palettePageSize {
 		return palettePageSize
 	}
@@ -124,7 +128,7 @@ func (s *Screen) renderPalette(width int) string {
 	if !s.paletteVisible() {
 		return ""
 	}
-	matches := matchCommands(s.input.Value())
+	matches := s.matchCommands(s.input.Value())
 	visible := len(matches)
 	if visible > palettePageSize {
 		visible = palettePageSize
