@@ -204,35 +204,22 @@ func (s *Screen) cmdWho() (*Screen, tea.Cmd) {
 	return s, nil
 }
 
-// cmdTheme switches the active color theme for this session, or lists themes
-// when called with no arguments. The change is per-session: it mutates the
-// shared *theme.Styles, which every screen reads through on the next render.
+// cmdTheme opens an interactive picker (no args) or switches directly by id.
+// The picker live-previews each option as the user navigates and commits on
+// enter; the direct form is kept so scripted / muscle-memory flows still work.
 func (s *Screen) cmdTheme(args []string) (*Screen, tea.Cmd) {
 	if len(args) == 0 {
-		lines := []string{
-			fmt.Sprintf("current theme: %s (%s)", s.styles.Theme.ID, s.styles.Theme.DisplayName),
-			"available:",
-		}
-		for _, id := range theme.IDs() {
-			t, _ := theme.Get(id)
-			marker := "  "
-			if id == s.styles.Theme.ID {
-				marker = "* "
-			}
-			lines = append(lines, fmt.Sprintf("%s%-12s  %s", marker, id, t.DisplayName))
-		}
-		lines = append(lines, "usage: /theme <id>")
-		s.postSystem(strings.Join(lines, "\n"))
+		s.openThemePicker()
 		return s, nil
 	}
 	id := strings.ToLower(args[0])
 	t, ok := theme.Get(id)
 	if !ok {
-		s.postSystem(fmt.Sprintf("unknown theme %q — try /theme to list", args[0]))
+		s.postSystem(fmt.Sprintf("unknown theme %q — try /theme to pick", args[0]))
 		return s, nil
 	}
 	s.styles.SetTheme(t)
-	s.postSystem(fmt.Sprintf("theme switched to %s (%s)", t.ID, t.DisplayName))
+	s.postSystem(fmt.Sprintf("theme set to %s (%s)", t.ID, t.DisplayName))
 	return s, nil
 }
 

@@ -60,8 +60,9 @@ type Screen struct {
 	// (command output, error hints). They never reach the hub.
 	localMessages []ui.ChatMessage
 
-	joinPosted bool
-	authFlow   *authFlowState
+	joinPosted  bool
+	authFlow    *authFlowState
+	themePicker *themePickerState
 }
 
 // New constructs a lobby bound to hub. fallbackUser is the SSH-derived nick
@@ -135,6 +136,14 @@ func (s *Screen) HeaderContext() string {
 }
 
 func (s *Screen) Footer() []screens.KeyHint {
+	if s.themePickerVisible() {
+		return []screens.KeyHint{
+			{Key: "↑/↓", Desc: "preview"},
+			{Key: "enter", Desc: "apply"},
+			{Key: "esc", Desc: "cancel"},
+			{Key: "ctrl+c", Desc: "quit"},
+		}
+	}
 	if s.paletteVisible() {
 		return []screens.KeyHint{
 			{Key: "↑/↓", Desc: "navigate"},
@@ -194,6 +203,25 @@ func (s *Screen) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
 			return s, tea.Quit
 		case "esc":
 			s.cancelAuthFlow()
+		}
+		return s, nil
+	}
+
+	// Theme picker is modal: arrows preview, enter applies, esc reverts.
+	// Every other key is swallowed so the chat input stays inert.
+	if s.themePickerVisible() {
+		switch msg.String() {
+		case "ctrl+c":
+			s.closeThemePicker(false)
+			return s, tea.Quit
+		case "up":
+			s.moveThemePicker(-1)
+		case "down":
+			s.moveThemePicker(+1)
+		case "enter":
+			s.closeThemePicker(true)
+		case "esc":
+			s.closeThemePicker(false)
 		}
 		return s, nil
 	}
@@ -350,10 +378,13 @@ func (s *Screen) View(width, height int) string {
 	bar := s.topBar(s.activeName, s.hub.Online(s.activeName), contentW)
 	barH := lipgloss.Height(bar)
 
-	// Placeholder communicates gated state to the user; no other affordance.
-	if s.authRequired() {
+	// Placeholder communicates gated/modal state to the user.
+	switch {
+	case s.themePickerVisible():
+		s.input.Placeholder = "picking a theme — enter to apply, esc to cancel"
+	case s.authRequired():
 		s.input.Placeholder = "type /auth to authenticate and send messages"
-	} else {
+	default:
 		s.input.Placeholder = "message " + s.activeName + " or type /help"
 	}
 
@@ -365,7 +396,10 @@ func (s *Screen) View(width, height int) string {
 	palette := s.renderPalette(contentW)
 	paletteH := s.paletteHeight()
 
-	chatH := height - barH - paletteH - 4
+	picker := s.renderThemePicker(contentW)
+	pickerH := s.themePickerHeight()
+
+	chatH := height - barH - paletteH - pickerH - 4
 	if chatH < 4 {
 		chatH = 4
 	}
@@ -391,6 +425,9 @@ func (s *Screen) View(width, height int) string {
 	}
 	if palette != "" {
 		parts = append(parts, palette)
+	}
+	if picker != "" {
+		parts = append(parts, picker)
 	}
 	parts = append(parts, inputLine)
 	stacked := lipgloss.JoinVertical(lipgloss.Left, parts...)
