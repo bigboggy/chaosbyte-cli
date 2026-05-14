@@ -13,6 +13,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/app"
 	"github.com/bchayka/gitstatus/internal/config"
 	"github.com/bchayka/gitstatus/internal/field"
+	"github.com/bchayka/gitstatus/internal/identity"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,7 +50,7 @@ func main() {
 		BorderHi: cfg.Theme.BorderHi, BorderLo: cfg.Theme.BorderLo,
 	})
 
-	var m tea.Model = app.New("@boggy", nil, cfg)
+	var m tea.Model = app.New(identity.LocalPrincipal(), nil, cfg)
 	// Initialize.
 	if c := m.(*app.App).Init(); c != nil {
 		// drain init cmds

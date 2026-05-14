@@ -1,0 +1,22 @@
+# Pubkey allowlist for the vibespace SSH server.
+#
+# One [[principals]] entry per authorized user. The server refuses any
+# connection whose pubkey is not in this list. Cross-team membership is
+# enforced separately via the `teams` field.
+#
+# Copy this file to allowlist.toml and fill in real values. Both files
+# are gitignored; never commit a populated allowlist.
+
+[[principals]]
+display = "@daniel"
+# Paste the ssh-ed25519 public key line. The format matches
+# ~/.ssh/authorized_keys, so cat your own pubkey here.
+pubkey = "ssh-ed25519 AAAA... daniel@helm-mbp"
+teams = ["vibespace", "monobyte"]
+roles = ["operator"]
+
+[[principals]]
+display = "@boggy"
+pubkey = "ssh-ed25519 AAAA... bogdan@laptop"
+teams = ["vibespace", "monobyte", "acme"]
+roles = ["operator"]

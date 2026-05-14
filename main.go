@@ -3,6 +3,9 @@
 // in-process broker. The flagship Vibespace configuration loads here. A
 // different team's room is the same binary loaded with a different config,
 // which is the entire point of the platform layer.
+//
+// Local mode bypasses pubkey auth: a sentinel LocalPrincipal stands in for
+// a real user. Production deployments use cmd/vibespace-server.
 package main
 
 import (
@@ -11,16 +14,13 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/app"
 	"github.com/bchayka/gitstatus/internal/config"
+	"github.com/bchayka/gitstatus/internal/identity"
 	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	nick := os.Getenv("USER")
-	if nick == "" {
-		nick = "boggy"
-	}
 	cfg := config.DefaultVibespace()
 	theme.Apply(theme.Palette{
 		Bg:       cfg.Theme.Bg,
@@ -31,9 +31,10 @@ func main() {
 		BorderHi: cfg.Theme.BorderHi,
 		BorderLo: cfg.Theme.BorderLo,
 	})
-	broker := room.New(cfg.Slug, nil)
+	broker := room.New(cfg.Slug, nil, nil)
 	defer broker.Stop()
-	p := tea.NewProgram(app.New("@"+nick, broker, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	principal := identity.LocalPrincipal()
+	p := tea.NewProgram(app.New(principal, broker, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "vibespace: %v\n", err)
 		os.Exit(1)

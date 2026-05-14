@@ -12,11 +12,13 @@
 package room
 
 import (
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/bchayka/gitstatus/internal/capability"
 	"github.com/bchayka/gitstatus/internal/events"
 	"github.com/bchayka/gitstatus/internal/mod"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -43,6 +45,7 @@ type subscription struct {
 type Broker struct {
 	mu       sync.Mutex
 	clock    *events.Clock
+	verifier *capability.Issuer
 	messages map[string][]ui.ChatMessage
 	subs     []subscription
 	mod      *mod.Mod
@@ -66,13 +69,16 @@ const activityWindow = 10 * time.Second
 
 // New starts a broker scoped to a single room. The roomID identifies
 // the scope on every event the broker publishes. clock is optional; a
-// fresh clock is created if nil.
-func New(roomID string, clock *events.Clock) *Broker {
+// fresh clock is created if nil. verifier is optional; when nil the
+// broker skips capability checks (Phase 1 behavior). When set, every
+// PublishEvent with a non-nil CapabilityProof is verified before fan-out.
+func New(roomID string, clock *events.Clock, verifier *capability.Issuer) *Broker {
 	if clock == nil {
 		clock = events.NewClock()
 	}
 	b := &Broker{
 		clock:    clock,
+		verifier: verifier,
 		messages: map[string][]ui.ChatMessage{},
 		mod:      mod.New(),
 		stop:     make(chan struct{}),
@@ -195,6 +201,22 @@ func (b *Broker) PublishEvent(evt events.Event) error {
 	}
 	if evt.EventID() == uuid.Nil {
 		evt.SetID(uuid.New())
+	}
+
+	// Capability check. Phase 1 events typically carry nil proofs; the
+	// verify gate fires only when the proof is present and a verifier
+	// is configured. Phase 5 will tighten this to require a proof on
+	// every privileged kind.
+	if b.verifier != nil && evt.CapabilityProof() != nil {
+		ctx := capability.VerifyContext{
+			Room:   evt.Room(),
+			Action: capability.ActionFromKind(evt.EventKind()),
+		}
+		if _, err := b.verifier.Verify(evt.CapabilityProof(), ctx); err != nil {
+			if !errors.Is(err, capability.ErrNoToken) {
+				return err
+			}
+		}
 	}
 
 	// Materialize ChatPosted into the in-memory log so existing

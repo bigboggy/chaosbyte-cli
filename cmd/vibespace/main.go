@@ -16,6 +16,7 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/app"
 	"github.com/bchayka/gitstatus/internal/config"
+	"github.com/bchayka/gitstatus/internal/identity"
 	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -35,8 +36,7 @@ func main() {
 		BorderLo: cfg.Theme.BorderLo,
 	})
 
-	nick := "@boggy"
-	m := app.New(nick, nil, cfg)
+	m := app.New(identity.LocalPrincipal(), nil, cfg)
 	opts := []tea.ProgramOption{tea.WithMouseCellMotion()}
 	if !*noAltScreen {
 		opts = append(opts, tea.WithAltScreen())

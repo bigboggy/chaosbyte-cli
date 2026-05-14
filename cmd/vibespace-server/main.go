@@ -1,20 +1,32 @@
-// vibespace-server hosts vibespace over SSH. Each connection spawns its own
-// bubbletea program backed by an app.App; today the rooms are independent
-// per session, broker-backed shared state lands as a follow-up commit.
+// vibespace-server hosts vibespace over SSH. Each connection spawns its
+// own bubbletea program backed by an app.App.
+//
+// Phase 1 introduces real per-user identity: SSH ed25519 pubkey auth
+// gated by an allowlist file. Sessions that pass auth receive a
+// Principal carrying their display name, teams, roles, and a session
+// biscuit token. The handler refuses sessions whose pubkey is not in
+// the allowlist or whose principal is not a member of the requested
+// team.
 package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"flag"
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/bchayka/gitstatus/internal/app"
+	"github.com/bchayka/gitstatus/internal/capability"
 	"github.com/bchayka/gitstatus/internal/config"
+	"github.com/bchayka/gitstatus/internal/identity"
 	"github.com/bchayka/gitstatus/internal/platform"
 	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +38,7 @@ import (
 	bm "github.com/charmbracelet/wish/bubbletea"
 	"github.com/charmbracelet/wish/logging"
 	"github.com/muesli/termenv"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 func main() {
@@ -33,9 +46,31 @@ func main() {
 	port := flag.String("port", "23234", "SSH listen port")
 	keyPath := flag.String("hostkey", ".ssh/vibespace_ed25519", "SSH host key path (auto-generated if missing)")
 	configsDir := flag.String("configs", "configs", "directory containing per-team .toml config files")
+	keyfile := flag.String("keyfile", "configs/keys/allowlist.toml", "path to the pubkey allowlist")
+	biscuitKeyPath := flag.String("biscuit-key", "configs/keys/biscuit-root.key", "path to the biscuit root keypair (auto-generated if missing)")
 	flag.Parse()
 
-	registry := platform.NewRegistry()
+	allowlist, err := identity.LoadAllowlist(*keyfile)
+	if err != nil {
+		log.Error("could not load allowlist", "path", *keyfile, "error", err)
+		os.Exit(1)
+	}
+	log.Info("loaded allowlist", "principals", allowlist.Count(), "path", *keyfile)
+
+	// Ensure the biscuit root key file's directory exists; the issuer
+	// generates the keypair if the file is absent.
+	if err := os.MkdirAll(filepath.Dir(*biscuitKeyPath), 0o700); err != nil {
+		log.Error("could not prepare biscuit key dir", "error", err)
+		os.Exit(1)
+	}
+	issuer, err := capability.NewIssuer(*biscuitKeyPath)
+	if err != nil {
+		log.Error("could not initialize capability issuer", "error", err)
+		os.Exit(1)
+	}
+	log.Info("capability issuer ready")
+
+	registry := platform.NewRegistry(issuer)
 	if loaded, err := config.LoadFromDir(*configsDir); err != nil {
 		log.Warn("could not read configs directory", "dir", *configsDir, "error", err)
 	} else {
@@ -49,12 +84,13 @@ func main() {
 	srv, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort(*host, *port)),
 		wish.WithHostKeyPath(*keyPath),
+		wish.WithPublicKeyAuth(authFn(allowlist)),
 		wish.WithMiddleware(
 			// TrueColor floor: bm.MakeRenderer downgrades to the session
 			// context's minColorProfile, which defaults to Ascii. Raising
 			// the floor keeps the team palette intact for any modern
 			// terminal client.
-			bm.MiddlewareWithColorProfile(handlerFor(registry), termenv.TrueColor),
+			bm.MiddlewareWithColorProfile(handlerFor(registry, allowlist, issuer), termenv.TrueColor),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -83,35 +119,67 @@ func main() {
 	}
 }
 
-// handlerFor returns the Wish bubbletea handler that routes every incoming
-// SSH session to the team the user is asking for. The SSH user (the part
-// before @ in `ssh user@host`) is the team slug. Unknown slugs land on
-// the flagship.
+// authFn returns the Wish PublicKey auth callback. Returns true only
+// for pubkeys present in the allowlist. The verified key is recovered
+// later in handlerFor via s.PublicKey().
+func authFn(allowlist *identity.Allowlist) func(ctx ssh.Context, key ssh.PublicKey) bool {
+	return func(_ ssh.Context, key ssh.PublicKey) bool {
+		ed, ok := sshKeyToEd25519(key)
+		if !ok {
+			return false
+		}
+		_, found := allowlist.Lookup(ed)
+		return found
+	}
+}
+
+// handlerFor returns the Wish bubbletea handler that routes every
+// incoming SSH session to the team the user is asking for. The SSH
+// user (the part before @ in `ssh user@host`) is the team slug.
 //
-// Two pieces of session-scoped state are set up before the program runs:
-//
-//  1. lipgloss's default renderer is rebound to the SSH session's PTY via
-//     bm.MakeRenderer. Without this, the renderer inherits the daemon's
-//     non-TTY stdout, detects Ascii, and silently strips every color the
-//     theme tries to apply.
-//  2. theme.Apply replaces the package-level palette with the team's
-//     colors so screens read the right values during View().
-//
-// Both are process-global and racy across concurrent sessions to different
-// teams. The current platform invariant is one server, one team, which
-// keeps this safe; per-session render state is the follow-up when the
-// platform fans out to multi-team co-tenancy.
-func handlerFor(reg *platform.Registry) bm.Handler {
+// At this point the session is past PublicKeyAuth so s.PublicKey() is
+// a key we trust. We look it up in the allowlist (cheap, in-memory),
+// build a Principal, mint a session biscuit, and pass both into the
+// app.
+func handlerFor(reg *platform.Registry, allowlist *identity.Allowlist, issuer *capability.Issuer) bm.Handler {
 	return func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 		if _, _, active := s.Pty(); !active {
 			wish.Fatalln(s, "vibespace requires an interactive terminal")
 			return nil, nil
 		}
 		lipgloss.SetDefaultRenderer(bm.MakeRenderer(s))
+
+		ed, ok := sshKeyToEd25519(s.PublicKey())
+		if !ok {
+			wish.Fatalln(s, "vibespace requires an ed25519 SSH key")
+			return nil, nil
+		}
+		entry, ok := allowlist.Lookup(ed)
+		if !ok {
+			// Should never happen, since PublicKeyAuth already gated this.
+			wish.Fatalln(s, "your key is not on the allowlist")
+			return nil, nil
+		}
+
+		principal := allowlist.PrincipalFor(entry, uuid.New())
+
 		slug := s.User()
 		if slug == "" {
 			slug = "vibespace"
 		}
+		if !principal.IsMemberOf(slug) {
+			wish.Fatalln(s, "not a member of team \""+slug+"\"")
+			return nil, nil
+		}
+
+		// Mint a session biscuit. Phase 1 does not yet attach it to
+		// every event; the broker's verifier check is a no-op when
+		// CapabilityProof is nil. Phase 5 changes the lobby's publish
+		// path to stamp the proof on every event.
+		if _, err := issuer.IssueSession(principal, time.Hour); err != nil {
+			log.Warn("could not mint session biscuit", "error", err)
+		}
+
 		cfg, broker := reg.Resolve(slug)
 		theme.Apply(theme.Palette{
 			Bg:       cfg.Theme.Bg,
@@ -122,11 +190,32 @@ func handlerFor(reg *platform.Registry) bm.Handler {
 			BorderHi: cfg.Theme.BorderHi,
 			BorderLo: cfg.Theme.BorderLo,
 		})
-		nick := "@" + slug
-		return app.New(nick, broker, cfg), []tea.ProgramOption{
+
+		return app.New(principal, broker, cfg), []tea.ProgramOption{
 			tea.WithAltScreen(),
 			tea.WithMouseCellMotion(),
 		}
 	}
 }
 
+// sshKeyToEd25519 extracts the underlying ed25519.PublicKey from a Wish
+// ssh.PublicKey. The Wish API exposes only the gliderlabs/ssh interface,
+// so we round-trip through ssh.MarshalAuthorizedKey and the
+// golang.org/x/crypto/ssh parser to recover the typed key. Returns
+// false if the key is not ed25519.
+func sshKeyToEd25519(key ssh.PublicKey) (ed25519.PublicKey, bool) {
+	if key == nil {
+		return nil, false
+	}
+	authorized := gossh.MarshalAuthorizedKey(key)
+	parsed, _, _, _, err := gossh.ParseAuthorizedKey(authorized)
+	if err != nil {
+		return nil, false
+	}
+	cp, ok := parsed.(gossh.CryptoPublicKey)
+	if !ok {
+		return nil, false
+	}
+	ed, ok := cp.CryptoPublicKey().(ed25519.PublicKey)
+	return ed, ok
+}

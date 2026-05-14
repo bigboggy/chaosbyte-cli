@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/config"
+	"github.com/bchayka/gitstatus/internal/identity"
 	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
@@ -42,17 +43,17 @@ type App struct {
 	flashAt time.Time
 }
 
-// New constructs the app with all screens wired up. nick is the user's chat
-// handle (e.g. "@boggy"); broker carries shared room state across sessions
-// when vibespace runs as an SSH server; cfg is the team's room
-// configuration. The flagship loads config.DefaultVibespace(); other teams
-// load their own. The intro screen is the initial active screen and emits
-// Navigate(lobby) when its animation ends.
-func New(nick string, broker *room.Broker, cfg config.RoomConfig) *App {
+// New constructs the app with all screens wired up. principal is the
+// verified identity for this session; broker carries shared room state
+// across sessions when vibespace runs as an SSH server; cfg is the
+// team's room configuration. The flagship loads config.DefaultVibespace();
+// other teams load their own. The intro screen is the initial active
+// screen and emits Navigate(lobby) when its animation ends.
+func New(principal identity.Principal, broker *room.Broker, cfg config.RoomConfig) *App {
 	a := &App{
 		screens: map[string]screens.Screen{
 			screens.IntroID:     intro.New(),
-			screens.LobbyID:     lobby.New(nick, broker, cfg),
+			screens.LobbyID:     lobby.New(principal, broker, cfg),
 			screens.SpotlightID: spotlight.New(),
 		},
 		current: screens.IntroID,

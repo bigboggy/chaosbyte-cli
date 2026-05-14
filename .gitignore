@@ -2,3 +2,7 @@
 /vibespace-server
 /vibespace-trace
 .ssh/
+
+# Secrets and per-deployment configs.
+configs/keys/allowlist.toml
+configs/keys/biscuit-root.key

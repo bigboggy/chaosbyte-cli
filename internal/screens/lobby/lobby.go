@@ -18,6 +18,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/events"
 	"github.com/bchayka/gitstatus/internal/field"
 	"github.com/bchayka/gitstatus/internal/games"
+	"github.com/bchayka/gitstatus/internal/identity"
 	"github.com/bchayka/gitstatus/internal/mod"
 	"github.com/bchayka/gitstatus/internal/room"
 	"github.com/bchayka/gitstatus/internal/screens"
@@ -33,7 +34,8 @@ import (
 // screen reports InputFocused()==true and the app's global key handlers stay
 // out of the way.
 type Screen struct {
-	nick string
+	principal identity.Principal
+	nick      string
 
 	channels   []Channel
 	chatActive int
@@ -100,15 +102,17 @@ type msgPlacement struct {
 }
 
 // New constructs a fresh lobby with seeded channels and a focused input.
-// nick is the user's chat handle; broker is the shared room state and may
-// be nil for fully-local mode. When broker is attached every channel's
-// scrollback comes from broker.Snapshot and a single subscription delivers
-// events for all channels.
-func New(nick string, broker *room.Broker, cfg config.RoomConfig) *Screen {
+// principal is the verified identity for this session; broker is the
+// shared room state and may be nil for fully-local mode. When broker is
+// attached every channel's scrollback comes from broker.Snapshot and a
+// single subscription delivers events for all channels.
+func New(principal identity.Principal, broker *room.Broker, cfg config.RoomConfig) *Screen {
+	nick := principal.DisplayName
 	if nick == "" {
 		nick = "@boggy"
 	}
 	s := &Screen{
+		principal:     principal,
 		nick:          nick,
 		channels:      seedChannels(),
 		chatActive:    0,
