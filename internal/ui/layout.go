@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/bchayka/gitstatus/internal/theme"
-	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -64,6 +63,6 @@ func PadToHeight(s string, h int) string {
 
 // Divider returns a horizontal rule of the given width in the low-contrast
 // border color.
-func Divider(width int) string {
-	return lipgloss.NewStyle().Foreground(theme.BorderLo).Render(strings.Repeat("─", width))
+func Divider(st *theme.Styles, width int) string {
+	return st.NewStyle().Foreground(st.BorderLo).Render(strings.Repeat("─", width))
 }

@@ -11,12 +11,15 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/app"
 	"github.com/bchayka/gitstatus/internal/hub"
+	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func main() {
 	h := hub.New()
-	p := tea.NewProgram(app.New(localUser(), "", "", h, nil), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	styles := theme.New(lipgloss.DefaultRenderer(), theme.Default())
+	p := tea.NewProgram(app.New(styles, localUser(), "", "", h, nil), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "vibespace: %v\n", err)
 		os.Exit(1)

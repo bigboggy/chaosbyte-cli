@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -160,23 +159,24 @@ func (s *Screen) cancelAuthFlow() {
 // renderAuthModal draws the centered card shown during a device flow.
 func (s *Screen) renderAuthModal(width, height int) string {
 	a := s.authFlow
+	st := s.styles
 
-	titleColor := theme.Accent2
+	titleColor := st.Accent2
 	if a.failed {
-		titleColor = theme.Warn
+		titleColor = st.Warn
 	}
-	title := lipgloss.NewStyle().Foreground(titleColor).Bold(true).
+	title := st.NewStyle().Foreground(titleColor).Bold(true).
 		Render("Link your GitHub account")
 
 	var body []string
 	if a.userCode == "" {
-		body = append(body, lipgloss.NewStyle().Foreground(theme.Muted).Render(a.status))
+		body = append(body, st.NewStyle().Foreground(st.Muted).Render(a.status))
 	} else {
 		body = append(body,
-			"1. Open "+lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render(a.verifyURL),
-			"2. Enter code: "+lipgloss.NewStyle().Foreground(theme.OK).Bold(true).Render(a.userCode),
+			"1. Open "+st.NewStyle().Foreground(st.Accent).Bold(true).Render(a.verifyURL),
+			"2. Enter code: "+st.NewStyle().Foreground(st.OK).Bold(true).Render(a.userCode),
 			"",
-			lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(a.status),
+			st.NewStyle().Foreground(st.Muted).Italic(true).Render(a.status),
 		)
 	}
 
@@ -184,13 +184,13 @@ func (s *Screen) renderAuthModal(width, height int) string {
 	if a.failed {
 		hint = "press esc to dismiss"
 	}
-	body = append(body, "", lipgloss.NewStyle().Foreground(theme.Muted).Render(hint))
+	body = append(body, "", st.NewStyle().Foreground(st.Muted).Render(hint))
 
 	inner := lipgloss.JoinVertical(lipgloss.Left, append([]string{title, ""}, body...)...)
-	card := lipgloss.NewStyle().
+	card := st.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(titleColor).
 		Padding(1, 3).
 		Render(inner)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, card)
+	return st.Place(width, height, lipgloss.Center, lipgloss.Center, card)
 }

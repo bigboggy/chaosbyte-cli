@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bchayka/gitstatus/internal/screens"
+	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -23,16 +24,17 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-// Screen is the intro screen. It holds only the start timestamp; everything
-// else is derived per-frame.
+// Screen is the intro screen. It holds only the start timestamp and the
+// shared styles handle; everything else is derived per-frame.
 type Screen struct {
-	start time.Time
-	done  bool
+	styles *theme.Styles
+	start  time.Time
+	done   bool
 }
 
 // New returns an intro screen whose clock starts now.
-func New() *Screen {
-	return &Screen{start: time.Now()}
+func New(styles *theme.Styles) *Screen {
+	return &Screen{styles: styles, start: time.Now()}
 }
 
 func (s *Screen) Init() tea.Cmd { return tickCmd() }

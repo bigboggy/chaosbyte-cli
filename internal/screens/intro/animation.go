@@ -38,28 +38,28 @@ func (s *Screen) View(width, height int) string {
 	var content string
 	switch {
 	case ms < phaseBootEnd:
-		content = renderBoot(ms)
+		content = renderBoot(s.styles, ms)
 	case ms < phaseBuildEnd:
-		content = renderBuild(ms - phaseBootEnd)
+		content = renderBuild(s.styles, ms-phaseBootEnd)
 	case ms < phaseHoldEnd:
-		content = renderHold(ms - phaseBuildEnd)
+		content = renderHold(s.styles, ms-phaseBuildEnd)
 	case ms < phaseShrinkEnd:
-		content = renderShrink(ms - phaseHoldEnd)
+		content = renderShrink(s.styles, ms-phaseHoldEnd)
 	case ms < phaseByteEnd:
-		content = renderByte(ms - phaseShrinkEnd)
+		content = renderByte(s.styles, ms-phaseShrinkEnd)
 	case ms < phaseBlockEnd:
-		content = renderBlock(ms - phaseByteEnd)
+		content = renderBlock(s.styles, ms-phaseByteEnd)
 	default:
 		content = ""
 	}
 
-	skip := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
+	skip := s.styles.NewStyle().Foreground(s.styles.Muted).Italic(true).
 		Render("press any key to skip")
 	frame := lipgloss.JoinVertical(lipgloss.Center, content, "", "", skip)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, frame)
+	return s.styles.Place(width, height, lipgloss.Center, lipgloss.Center, frame)
 }
 
-func renderBoot(ms int) string {
+func renderBoot(st *theme.Styles, ms int) string {
 	revealed := ms / 55
 	if revealed > len(bootLines) {
 		revealed = len(bootLines)
@@ -67,84 +67,85 @@ func renderBoot(ms int) string {
 	var out []string
 	for i := 0; i < revealed; i++ {
 		line := bootLines[i]
-		style := lipgloss.NewStyle().Foreground(theme.OK)
+		style := st.NewStyle().Foreground(st.OK)
 		if strings.HasPrefix(line, "vibespace") {
-			style = lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true)
+			style = st.NewStyle().Foreground(st.Accent2).Bold(true)
 		}
 		out = append(out, style.Render(line))
 	}
 	if revealed < len(bootLines) && ms%500 < 250 {
-		out = append(out, lipgloss.NewStyle().Foreground(theme.Accent).Render("█"))
+		out = append(out, st.NewStyle().Foreground(st.Accent).Render("█"))
 	}
 	return strings.Join(out, "\n")
 }
 
-func renderBuild(ms int) string {
+func renderBuild(st *theme.Styles, ms int) string {
 	revealed := ms/100 + 1
 	if revealed > len(theme.LogoLines) {
 		revealed = len(theme.LogoLines)
 	}
+	gradient := st.LogoGradient()
 	var out []string
 	for i := 0; i < revealed; i++ {
-		out = append(out, lipgloss.NewStyle().
-			Foreground(theme.LogoGradient[i%len(theme.LogoGradient)]).
+		out = append(out, st.NewStyle().
+			Foreground(gradient[i%len(gradient)]).
 			Bold(true).
 			Render(theme.LogoLines[i]))
 	}
 	return strings.Join(out, "\n")
 }
 
-func renderHold(ms int) string {
-	logo := theme.RenderLogo()
+func renderHold(st *theme.Styles, ms int) string {
+	logo := st.RenderLogo()
 	pulse := math.Abs(math.Sin(float64(ms) / 180.0))
-	color := theme.Accent
+	color := st.Accent
 	if pulse > 0.5 {
-		color = theme.Accent2
+		color = st.Accent2
 	}
-	tagline := lipgloss.NewStyle().Foreground(color).Italic(true).
+	tagline := st.NewStyle().Foreground(color).Italic(true).
 		Render("an all-in-one place for devs and vibe coders")
-	dots := lipgloss.NewStyle().Foreground(theme.Muted).
+	dots := st.NewStyle().Foreground(st.Muted).
 		Render(strings.Repeat(".", (ms/200)%4))
-	connecting := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
+	connecting := st.NewStyle().Foreground(st.Muted).Italic(true).
 		Render("connecting to #lobby") + dots
 	return lipgloss.JoinVertical(lipgloss.Center, logo, "", tagline, "", connecting)
 }
 
-func renderShrink(ms int) string {
+func renderShrink(st *theme.Styles, ms int) string {
 	progress := float64(ms) / float64(phaseShrinkEnd-phaseHoldEnd)
 	if progress < 0.4 {
 		mid := []string{
 			theme.LogoLines[1], theme.LogoLines[2], theme.LogoLines[3], theme.LogoLines[4],
 		}
-		return lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).
+		return st.NewStyle().Foreground(st.Accent2).Bold(true).
 			Render(strings.Join(mid, "\n"))
 	}
 	if progress < 0.7 {
 		mid := []string{theme.LogoLines[2], theme.LogoLines[3]}
-		return lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).
+		return st.NewStyle().Foreground(st.Accent2).Bold(true).
 			Render(strings.Join(mid, "\n"))
 	}
-	return lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).
+	return st.NewStyle().Foreground(st.Accent2).Bold(true).
 		Render("V I B E S P A C E")
 }
 
-func renderByte(ms int) string {
+func renderByte(st *theme.Styles, ms int) string {
 	progress := float64(ms) / float64(phaseByteEnd-phaseShrinkEnd)
 	if progress < 0.3 {
-		return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+		return st.NewStyle().Foreground(st.Accent).Bold(true).
 			Render("00100000")
 	}
 	if progress < 0.7 {
-		return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+		return st.NewStyle().Foreground(st.Accent).Bold(true).
 			Render("space")
 	}
-	return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+	return st.NewStyle().Foreground(st.Accent).Bold(true).
 		Render("s")
 }
 
-func renderBlock(ms int) string {
+func renderBlock(st *theme.Styles, ms int) string {
 	if ms%140 < 70 {
-		return lipgloss.NewStyle().Foreground(theme.Accent).Render("▪")
+		return st.NewStyle().Foreground(st.Accent).Render("▪")
 	}
-	return lipgloss.NewStyle().Foreground(theme.Muted).Render("·")
+	return st.NewStyle().Foreground(st.Muted).Render("·")
 }

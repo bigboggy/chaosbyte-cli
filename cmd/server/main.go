@@ -30,24 +30,17 @@ import (
 	"github.com/bchayka/gitstatus/internal/auth"
 	"github.com/bchayka/gitstatus/internal/hub"
 	"github.com/bchayka/gitstatus/internal/identity"
+	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
 	"github.com/charmbracelet/wish/activeterm"
 	bm "github.com/charmbracelet/wish/bubbletea"
 	"github.com/charmbracelet/wish/logging"
-	"github.com/muesli/termenv"
 	gossh "golang.org/x/crypto/ssh"
 )
 
 func main() {
-	// Under systemd, stdout isn't a TTY so termenv defaults to no-color and
-	// lipgloss strips every ANSI escape before it reaches the SSH wire. Force
-	// truecolor on the default renderer — modern terminals will downgrade
-	// gracefully if the client doesn't support 24-bit color.
-	lipgloss.SetColorProfile(termenv.TrueColor)
-
 	addr := envOr("VIBESPACE_ADDR", ":2222")
 	hostKey := envOr("VIBESPACE_HOSTKEY", ".ssh/id_ed25519")
 	ghClientID := os.Getenv("VIBESPACE_GH_CLIENT_ID")
@@ -134,7 +127,13 @@ func teaHandler(world *hub.Hub, authSvc *auth.Service) bm.Handler {
 			ghLogin = authSvc.Lookup(fingerprint)
 		}
 
-		a := app.New(fallback, fingerprint, ghLogin, world, authSvc)
+		// Per-session renderer reflects this client's terminal capabilities
+		// (truecolor / 256 / 16 / no-color). Styles built through it downgrade
+		// gracefully instead of dumping raw 24-bit escapes on terminals that
+		// can't render them.
+		styles := theme.New(bm.MakeRenderer(sess), theme.Default())
+
+		a := app.New(styles, fallback, fingerprint, ghLogin, world, authSvc)
 
 		// Cleanup on session end: SSH closes ctx -> unsubscribe + free resources.
 		go func() {

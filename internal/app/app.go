@@ -10,12 +10,15 @@ import (
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
 	"github.com/bchayka/gitstatus/internal/screens/lobby"
+	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // App is the top-level bubbletea Model.
 type App struct {
+	styles *theme.Styles // shared with all screens — /theme mutates in place
+
 	screens map[string]screens.Screen
 	current string
 	lobby   *lobby.Screen // kept for Cleanup
@@ -23,17 +26,20 @@ type App struct {
 	width, height int
 }
 
-// New constructs a session app. fallbackUser is the SSH-derived nick used
-// when the user isn't (yet) authenticated; fingerprint is the SSH pubkey
-// fingerprint (may be empty); ghLogin is a pre-existing GitHub link from the
-// identity store (may be empty); h is the shared chat backend; authSvc may
-// be nil to disable /auth. The intro screen is the initial active screen;
-// it emits Navigate(lobby) when its animation ends.
-func New(fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service) *App {
-	lob := lobby.New(fallbackUser, fingerprint, ghLogin, h, authSvc)
+// New constructs a session app. styles owns the per-session renderer and the
+// current theme — pass a freshly built *theme.Styles per session so terminal
+// capabilities and theme choice are scoped correctly. fallbackUser is the
+// SSH-derived nick used when the user isn't (yet) authenticated; fingerprint
+// is the SSH pubkey fingerprint (may be empty); ghLogin is a pre-existing
+// GitHub link from the identity store (may be empty); h is the shared chat
+// backend; authSvc may be nil to disable /auth. The intro screen is the
+// initial active screen; it emits Navigate(lobby) when its animation ends.
+func New(styles *theme.Styles, fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service) *App {
+	lob := lobby.New(styles, fallbackUser, fingerprint, ghLogin, h, authSvc)
 	return &App{
+		styles: styles,
 		screens: map[string]screens.Screen{
-			screens.IntroID: intro.New(),
+			screens.IntroID: intro.New(styles),
 			screens.LobbyID: lob,
 		},
 		current: screens.IntroID,
@@ -78,7 +84,7 @@ func (a *App) updateScreen(msg tea.Msg) tea.Cmd {
 
 func (a *App) View() string {
 	if a.width < ui.MinWidth || a.height < ui.MinHeight {
-		return tooSmall(a.width, a.height)
+		return tooSmall(a.styles, a.width, a.height)
 	}
 	return a.renderFrame()
 }

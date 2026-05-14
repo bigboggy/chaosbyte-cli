@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/bchayka/gitstatus/internal/screens"
+	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -23,6 +24,7 @@ var builtins = []command{
 	{"/list", "list channels"},
 	{"/who", "list users in this channel"},
 	{"/me", "third-person action"},
+	{"/theme", "switch color theme"},
 	{"/auth", "link your GitHub account"},
 	{"/logout", "unlink your GitHub account"},
 	{"/clear", "clear scrollback"},
@@ -47,6 +49,7 @@ var allowedWhenGated = map[string]bool{
 	"/help":  true,
 	"/quit":  true,
 	"/clear": true,
+	"/theme": true,
 }
 
 func canonicalName(name string) string {
@@ -107,6 +110,8 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s.cmdAuthGithub()
 	case "/logout":
 		return s.cmdLogout()
+	case "/theme":
+		return s.cmdTheme(args)
 	}
 	s.postSystem(fmt.Sprintf("unknown command %q — try /help", parts[0]))
 	return s, nil
@@ -196,6 +201,38 @@ func (s *Screen) cmdList() (*Screen, tea.Cmd) {
 func (s *Screen) cmdWho() (*Screen, tea.Cmd) {
 	n := s.hub.Online(s.activeName)
 	s.postSystem(fmt.Sprintf("%d connected in %s", n, s.activeName))
+	return s, nil
+}
+
+// cmdTheme switches the active color theme for this session, or lists themes
+// when called with no arguments. The change is per-session: it mutates the
+// shared *theme.Styles, which every screen reads through on the next render.
+func (s *Screen) cmdTheme(args []string) (*Screen, tea.Cmd) {
+	if len(args) == 0 {
+		lines := []string{
+			fmt.Sprintf("current theme: %s (%s)", s.styles.Theme.ID, s.styles.Theme.DisplayName),
+			"available:",
+		}
+		for _, id := range theme.IDs() {
+			t, _ := theme.Get(id)
+			marker := "  "
+			if id == s.styles.Theme.ID {
+				marker = "* "
+			}
+			lines = append(lines, fmt.Sprintf("%s%-12s  %s", marker, id, t.DisplayName))
+		}
+		lines = append(lines, "usage: /theme <id>")
+		s.postSystem(strings.Join(lines, "\n"))
+		return s, nil
+	}
+	id := strings.ToLower(args[0])
+	t, ok := theme.Get(id)
+	if !ok {
+		s.postSystem(fmt.Sprintf("unknown theme %q — try /theme to list", args[0]))
+		return s, nil
+	}
+	s.styles.SetTheme(t)
+	s.postSystem(fmt.Sprintf("theme switched to %s (%s)", t.ID, t.DisplayName))
 	return s, nil
 }
 

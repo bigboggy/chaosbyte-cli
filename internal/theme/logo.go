@@ -2,8 +2,6 @@ package theme
 
 import (
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 // LogoLines is the VIBESPACE ASCII art (ANSI Shadow style). 6 rows × 76 cols.
@@ -16,19 +14,13 @@ var LogoLines = []string{
 	"  ╚═══╝   ╚═╝ ╚═════╝  ╚══════╝ ╚══════╝ ╚═╝      ╚═╝  ╚═╝  ╚═════╝ ╚══════╝",
 }
 
-// LogoGradient cycles the three accent colors top-to-bottom for the logo.
-var LogoGradient = []lipgloss.Color{
-	Accent, Accent,
-	Accent2, Accent2,
-	Like, Like,
-}
-
-// RenderLogo paints LogoLines using LogoGradient.
-func RenderLogo() string {
-	var out []string
+// RenderLogo paints LogoLines using the active theme's gradient.
+func (s *Styles) RenderLogo() string {
+	gradient := s.LogoGradient()
+	out := make([]string, 0, len(LogoLines))
 	for i, line := range LogoLines {
-		out = append(out, lipgloss.NewStyle().
-			Foreground(LogoGradient[i%len(LogoGradient)]).
+		out = append(out, s.NewStyle().
+			Foreground(gradient[i%len(gradient)]).
 			Bold(true).
 			Render(line))
 	}

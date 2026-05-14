@@ -15,13 +15,14 @@ import (
 // context, with a clock right-aligned.
 func (a *App) renderHeader() string {
 	scr := a.activeScreen()
+	st := a.styles
 
-	title := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render("vibespace")
-	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render(" · ")
+	title := st.NewStyle().Foreground(st.Accent2).Bold(true).Render("vibespace")
+	sep := st.NewStyle().Foreground(st.Muted).Render(" · ")
 
-	chip := lipgloss.NewStyle().
-		Foreground(theme.Bg).
-		Background(theme.Accent).
+	chip := st.NewStyle().
+		Foreground(st.Bg).
+		Background(st.Accent).
 		Bold(true).
 		Padding(0, 1).
 		Render(scr.Title())
@@ -31,7 +32,7 @@ func (a *App) renderHeader() string {
 		left += sep + ctx
 	}
 
-	right := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
+	right := st.NewStyle().Foreground(st.Muted).Italic(true).
 		Render(time.Now().Format("Mon 15:04:05"))
 
 	shellW := ui.FeedShellWidth(a.width)
@@ -40,13 +41,13 @@ func (a *App) renderHeader() string {
 		gap = 1
 	}
 	inner := left + strings.Repeat(" ", gap) + right
-	return lipgloss.PlaceHorizontal(a.width, lipgloss.Left, inner)
+	return st.PlaceHorizontal(a.width, lipgloss.Left, inner)
 }
 
 // tooSmall is the error screen shown when the terminal is below the minimum
 // size that screens are designed for.
-func tooSmall(w, h int) string {
-	return lipgloss.NewStyle().Foreground(theme.Warn).
+func tooSmall(st *theme.Styles, w, h int) string {
+	return st.NewStyle().Foreground(st.Warn).
 		Render(fmt.Sprintf("terminal too small (%dx%d), need at least %dx%d",
 			w, h, ui.MinWidth, ui.MinHeight))
 }

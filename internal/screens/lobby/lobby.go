@@ -36,6 +36,8 @@ import (
 // When auth is configured server-side (auth != nil) and ghLogin == "", the
 // session is "gated" — read-only chat, only /auth/help/quit/clear work.
 type Screen struct {
+	styles *theme.Styles // shared with app + intro; mutated by /theme
+
 	hub    *hub.Hub
 	subID  uint64
 	events <-chan hub.Event
@@ -67,7 +69,7 @@ type Screen struct {
 // (may be ""). ghLogin is a pre-existing GitHub link from the identity store
 // (may be ""). authSvc may be nil to disable /auth entirely. The session
 // subscribes to the hub immediately; call Cleanup when the session ends.
-func New(fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service) *Screen {
+func New(styles *theme.Styles, fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service) *Screen {
 	id, events := h.Subscribe()
 	h.SetViewing(id, "#lobby")
 	me := fallbackUser
@@ -75,6 +77,7 @@ func New(fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Se
 		me = "@" + ghLogin
 	}
 	return &Screen{
+		styles:       styles,
 		hub:          h,
 		subID:        id,
 		events:       events,
@@ -126,9 +129,9 @@ func (s *Screen) Title() string { return "lobby" }
 
 func (s *Screen) HeaderContext() string {
 	name := s.activeName
-	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render(" · ")
-	return lipgloss.NewStyle().Foreground(theme.OK).Render(name) + sep +
-		lipgloss.NewStyle().Foreground(theme.Muted).Render(fmt.Sprintf("%d online", s.hub.Online(name)))
+	sep := s.styles.NewStyle().Foreground(s.styles.Muted).Render(" · ")
+	return s.styles.NewStyle().Foreground(s.styles.OK).Render(name) + sep +
+		s.styles.NewStyle().Foreground(s.styles.Muted).Render(fmt.Sprintf("%d online", s.hub.Online(name)))
 }
 
 func (s *Screen) Footer() []screens.KeyHint {
@@ -344,7 +347,7 @@ func (s *Screen) View(width, height int) string {
 		s.hub.SetViewing(s.subID, s.activeName)
 	}
 
-	bar := topBar(s.activeName, s.hub.Online(s.activeName), contentW)
+	bar := s.topBar(s.activeName, s.hub.Online(s.activeName), contentW)
 	barH := lipgloss.Height(bar)
 
 	// Placeholder communicates gated state to the user; no other affordance.
@@ -354,7 +357,7 @@ func (s *Screen) View(width, height int) string {
 		s.input.Placeholder = "message " + s.activeName + " or type /help"
 	}
 
-	prompt := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
+	prompt := s.styles.NewStyle().Foreground(s.styles.Accent).Bold(true).
 		Render("[" + strings.TrimPrefix(s.meUser, "@") + "]> ")
 	s.input.Width = contentW - lipgloss.Width(prompt) - 1
 	inputLine := prompt + s.input.View()
@@ -370,34 +373,34 @@ func (s *Screen) View(width, height int) string {
 	msgs, _ := s.hub.Messages(s.activeName)
 	var lines []string
 	for _, msg := range msgs {
-		lines = append(lines, ui.RenderChatLine(msg, contentW)...)
+		lines = append(lines, ui.RenderChatLine(s.styles, msg, contentW)...)
 	}
 	// Local-only system messages (command output, hints) appear at the tail of
 	// the scrollback; they're not broadcast and don't move when the user
 	// switches channels.
 	for _, msg := range s.localMessages {
-		lines = append(lines, ui.RenderChatLine(msg, contentW)...)
+		lines = append(lines, ui.RenderChatLine(s.styles, msg, contentW)...)
 	}
 	visible := windowScrollback(lines, chatH, s.chatScroll)
 
 	parts := []string{
 		bar,
-		ui.Divider(contentW),
+		ui.Divider(s.styles, contentW),
 		visible,
-		ui.Divider(contentW),
+		ui.Divider(s.styles, contentW),
 	}
 	if palette != "" {
 		parts = append(parts, palette)
 	}
 	parts = append(parts, inputLine)
 	stacked := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
+	return s.styles.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
-func topBar(name string, online, width int) string {
-	chName := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render(name)
-	onlineStr := lipgloss.NewStyle().Foreground(theme.OK).Render(fmt.Sprintf("%d online", online))
-	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render("  ·  ")
+func (s *Screen) topBar(name string, online, width int) string {
+	chName := s.styles.NewStyle().Foreground(s.styles.Accent2).Bold(true).Render(name)
+	onlineStr := s.styles.NewStyle().Foreground(s.styles.OK).Render(fmt.Sprintf("%d online", online))
+	sep := s.styles.NewStyle().Foreground(s.styles.Muted).Render("  ·  ")
 	left := chName + sep + onlineStr
 	if lipgloss.Width(left) > width {
 		left = ui.Truncate(left, width)

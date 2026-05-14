@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/bchayka/gitstatus/internal/theme"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // palettePageSize caps how many command rows are visible at once. The selection
@@ -152,14 +151,14 @@ func (s *Screen) renderPalette(width int) string {
 
 	rows := make([]string, 0, visible)
 	for i := start; i < end; i++ {
-		rows = append(rows, renderPaletteRow(matches[i], commandDesc(matches[i]), width, i == sel))
+		rows = append(rows, renderPaletteRow(s.styles, matches[i], commandDesc(matches[i]), width, i == sel))
 	}
 
 	// "+N more" hint when the list overflows the window.
 	overflow := len(matches) - visible
 	if overflow > 0 {
-		hint := lipgloss.NewStyle().
-			Foreground(theme.Muted).
+		hint := s.styles.NewStyle().
+			Foreground(s.styles.Muted).
 			Italic(true).
 			Render(fmt.Sprintf("  +%d more — arrows to scroll", overflow))
 		// Replace the last visible row with the hint? No — keep all matches
@@ -172,18 +171,18 @@ func (s *Screen) renderPalette(width int) string {
 	return strings.Join(rows, "\n")
 }
 
-func renderPaletteRow(cmd, desc string, width int, selected bool) string {
+func renderPaletteRow(st *theme.Styles, cmd, desc string, width int, selected bool) string {
 	body := fmt.Sprintf("  %-*s  %s", commandColWidth, cmd, desc)
 	if selected {
-		return lipgloss.NewStyle().
-			Foreground(theme.Bg).
-			Background(theme.Accent).
+		return st.NewStyle().
+			Foreground(st.Bg).
+			Background(st.Accent).
 			Bold(true).
 			Width(width).
 			Render(body)
 	}
-	cmdPart := lipgloss.NewStyle().Foreground(theme.Accent).
+	cmdPart := st.NewStyle().Foreground(st.Accent).
 		Render(fmt.Sprintf("  %-*s", commandColWidth, cmd))
-	descPart := lipgloss.NewStyle().Foreground(theme.Muted).Render("  " + desc)
+	descPart := st.NewStyle().Foreground(st.Muted).Render("  " + desc)
 	return cmdPart + descPart
 }

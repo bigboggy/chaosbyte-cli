@@ -29,28 +29,28 @@ type ChatMessage struct {
 // RenderChatLine produces one or more visual lines for a single message, wrapping
 // the body to bodyWidth and color-coding the author by nick hash for normal
 // messages. The returned slice is meant to be joined with "\n".
-func RenderChatLine(msg ChatMessage, width int) []string {
-	ts := theme.CommitTime.Render(HumanizeTime(msg.At))
+func RenderChatLine(st *theme.Styles, msg ChatMessage, width int) []string {
+	ts := st.CommitTime().Render(HumanizeTime(msg.At))
 	var prefix string
 	var bodyStyle lipgloss.Style
 	body := msg.Body
 
 	switch msg.Kind {
 	case ChatJoin:
-		prefix = lipgloss.NewStyle().Foreground(theme.OK).Bold(true).Render("-->")
-		bodyStyle = lipgloss.NewStyle().Foreground(theme.OK).Italic(true)
+		prefix = st.NewStyle().Foreground(st.OK).Bold(true).Render("-->")
+		bodyStyle = st.NewStyle().Foreground(st.OK).Italic(true)
 		body = msg.Author + " " + body
 	case ChatSystem:
-		prefix = lipgloss.NewStyle().Foreground(theme.Muted).Render("*")
-		bodyStyle = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+		prefix = st.NewStyle().Foreground(st.Muted).Render("*")
+		bodyStyle = st.NewStyle().Foreground(st.Muted).Italic(true)
 	case ChatAction:
-		prefix = lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render("*")
-		bodyStyle = lipgloss.NewStyle().Foreground(theme.Accent2).Italic(true)
+		prefix = st.NewStyle().Foreground(st.Accent2).Bold(true).Render("*")
+		bodyStyle = st.NewStyle().Foreground(st.Accent2).Italic(true)
 		body = msg.Author + " " + body
 	default:
 		nick := strings.TrimPrefix(msg.Author, "@")
-		prefix = lipgloss.NewStyle().Foreground(NickColor(nick)).Render("<" + nick + ">")
-		bodyStyle = lipgloss.NewStyle().Foreground(theme.Fg)
+		prefix = st.NewStyle().Foreground(NickColor(st, nick)).Render("<" + nick + ">")
+		bodyStyle = st.NewStyle().Foreground(st.Fg)
 	}
 
 	header := ts + " " + prefix + " "
@@ -71,12 +71,11 @@ func RenderChatLine(msg ChatMessage, width int) []string {
 	return out
 }
 
-// NickColor maps a nickname to a deterministic palette color so chat lines
-// have visual continuity across the scrollback.
-func NickColor(nick string) lipgloss.Color {
-	palette := []lipgloss.Color{
-		theme.Accent, theme.Accent2, theme.OK, theme.Warn, theme.Like,
-	}
+// NickColor maps a nickname to a deterministic palette color drawn from the
+// current theme, so chat lines keep visual continuity across the scrollback
+// and follow theme swaps.
+func NickColor(st *theme.Styles, nick string) lipgloss.Color {
+	palette := []lipgloss.Color{st.Accent, st.Accent2, st.OK, st.Warn, st.Like}
 	h := 0
 	for _, c := range nick {
 		h = h*31 + int(c)
@@ -86,4 +85,3 @@ func NickColor(nick string) lipgloss.Color {
 	}
 	return palette[h%len(palette)]
 }
-
