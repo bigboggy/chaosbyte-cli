@@ -1,15 +1,15 @@
 ```
- ██████╗██╗  ██╗ █████╗  ██████╗ ███████╗██████╗ ██╗   ██╗████████╗███████╗
-██╔════╝██║  ██║██╔══██╗██╔═══██╗██╔════╝██╔══██╗╚██╗ ██╔╝╚══██╔══╝██╔════╝
-██║     ███████║███████║██║   ██║███████╗██████╔╝ ╚████╔╝    ██║   █████╗
-██║     ██╔══██║██╔══██║██║   ██║╚════██║██╔══██╗  ╚██╔╝     ██║   ██╔══╝
-╚██████╗██║  ██║██║  ██║╚██████╔╝███████║██████╔╝   ██║      ██║   ███████╗
- ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═════╝    ╚═╝      ╚═╝   ╚══════╝
+██╗   ██╗ ██╗ ██████╗  ███████╗ ███████╗ ██████╗   █████╗   ██████╗ ███████╗
+██║   ██║ ██║ ██╔══██╗ ██╔════╝ ██╔════╝ ██╔══██╗ ██╔══██╗ ██╔════╝ ██╔════╝
+██║   ██║ ██║ ██████╔╝ █████╗   ███████╗ ██████╔╝ ███████║ ██║      █████╗
+╚██╗ ██╔╝ ██║ ██╔══██╗ ██╔══╝   ╚════██║ ██╔═══╝  ██╔══██║ ██║      ██╔══╝
+ ╚████╔╝  ██║ ██████╔╝ ███████╗ ███████║ ██║      ██║  ██║ ╚██████╗ ███████╗
+  ╚═══╝   ╚═╝ ╚═════╝  ╚══════╝ ╚══════╝ ╚═╝      ╚═╝  ╚═╝  ╚═════╝ ╚══════╝
 ```
 
 > an all-in-one place for devs and vibe coders, in your terminal.
 
-**chaosbyte** is a TUI lobby app. You start in a 90s-style chat,
+**vibespace** is a TUI lobby app. You start in a 90s-style chat,
 then you `/news`, `/spotlight`, `/games`, `/resources`, or `/discussions` your way around.
 
 Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
@@ -22,15 +22,15 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
 One-liner (Linux / macOS):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bigboggy/chaosbyte-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace-cli/main/install.sh | bash
 ```
 
-Installs the **chaosbyte** binary to `~/.local/bin/chaosbyte`.
+Installs the **vibespace** binary to `~/.local/bin/vibespace`.
 
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bigboggy/chaosbyte-cli/main/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace-cli/main/install.sh | bash -s -- --uninstall
 ```
 
 ---
@@ -56,8 +56,8 @@ Requires Go 1.24+ and a terminal at least 80×22. Catppuccin Mocha palette throu
 | **Games** | `/games` | Mini-games. **Bug Hunter** is playable, the rest are aspirational. |
 | **Discussions** | `/discussions` (alias `/commits`, `/feed`) | Threaded commit-style posts across branches |
 
-The intro animation plays once on startup — `CHAOSBYTE` boots, holds, collapses to a single
-byte, then drops you in `#lobby`. Press any key to skip.
+The intro animation plays once on startup — `VIBESPACE` boots, holds, collapses to a single
+character, then drops you in `#lobby`. Press any key to skip.
 
 ---
 
@@ -79,7 +79,7 @@ Type `/` in the lobby and Tab to cycle suggestions.
 /me <action>   third-person action
 /clear         clear scrollback
 /help          show all commands
-/quit          exit chaosbyte
+/quit          exit vibespace
 ```
 
 Aliases: `/skills` → `/resources`, `/commits` → `/discussions`, `/exit` / `/bye` → `/quit`,
@@ -116,7 +116,7 @@ Aliases: `/skills` → `/resources`, `/commits` → `/discussions`, `/exit` / `/
 ## Project layout
 
 ```
-gitstatus/
+vibespace/
 ├── main.go                 # entrypoint, wires app to bubbletea
 └── internal/
     ├── theme/              # Catppuccin palette, shared styles, logo

@@ -15,17 +15,17 @@ const (
 	phaseBootEnd   = 400  // boot lines type out
 	phaseBuildEnd  = 1000 // logo builds line by line (600ms)
 	phaseHoldEnd   = 3500 // logo holds with tagline (2500ms — the brand beat)
-	phaseShrinkEnd = 3800 // collapses to plain "CHAOSBYTE"
-	phaseByteEnd   = 4200 // morphs through binary → "byte"
+	phaseShrinkEnd = 3800 // collapses to plain "VIBESPACE"
+	phaseByteEnd   = 4200 // morphs through binary → "space"
 	phaseBlockEnd  = 4400 // single block
 	phaseFadeEnd   = 4600 // blank, then transition
 )
 
 var bootLines = []string{
-	"chaosbyte boot v0.1.0",
+	"vibespace boot v0.1.0",
 	"",
 	"[ok] kernel              loaded",
-	"[ok] mesh.chaosbyte.dev  online",
+	"[ok] mesh.vibespace.dev  online",
 	"[ok] vibes               synced",
 	"[ok] tui driver          initialized",
 	"[ok] #lobby              ready",
@@ -68,7 +68,7 @@ func renderBoot(ms int) string {
 	for i := 0; i < revealed; i++ {
 		line := bootLines[i]
 		style := lipgloss.NewStyle().Foreground(theme.OK)
-		if strings.HasPrefix(line, "chaosbyte") {
+		if strings.HasPrefix(line, "vibespace") {
 			style = lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true)
 		}
 		out = append(out, style.Render(line))
@@ -125,21 +125,21 @@ func renderShrink(ms int) string {
 			Render(strings.Join(mid, "\n"))
 	}
 	return lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).
-		Render("C H A O S B Y T E")
+		Render("V I B E S P A C E")
 }
 
 func renderByte(ms int) string {
 	progress := float64(ms) / float64(phaseByteEnd-phaseShrinkEnd)
 	if progress < 0.3 {
 		return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
-			Render("01000010")
+			Render("00100000")
 	}
 	if progress < 0.7 {
 		return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
-			Render("byte")
+			Render("space")
 	}
 	return lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
-		Render("b")
+		Render("s")
 }
 
 func renderBlock(ms int) string {
