@@ -3,16 +3,12 @@ package lobby
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// command is one entry in the slash-command catalog. handlers live in the
-// dispatch switch rather than as function pointers on this struct, which lets
-// handlers reference `builtins` without creating a package-level init cycle.
 type command struct {
 	name string
 	desc string
@@ -25,15 +21,13 @@ var builtins = []command{
 	{"/join", "join or switch channel"},
 	{"/leave", "return to #lobby"},
 	{"/list", "list channels"},
-	{"/who", "list users"},
+	{"/who", "list users in this channel"},
 	{"/me", "third-person action"},
 	{"/clear", "clear scrollback"},
 	{"/help", "show all commands"},
 	{"/quit", "exit vibespace"},
 }
 
-// aliases maps an alternate spelling to its canonical command name. Aliases
-// don't show in autocomplete.
 var aliases = map[string]string{
 	"/exit":     "/quit",
 	"/bye":      "/quit",
@@ -43,7 +37,6 @@ var aliases = map[string]string{
 	"/?":        "/help",
 }
 
-// canonicalName resolves aliases to their primary command name.
 func canonicalName(name string) string {
 	if a, ok := aliases[name]; ok {
 		return a
@@ -51,8 +44,6 @@ func canonicalName(name string) string {
 	return name
 }
 
-// handleSlash parses and dispatches a typed slash command. Unknown commands
-// post a system message back to chat.
 func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 	parts := strings.Fields(text)
 	if len(parts) == 0 {
@@ -67,6 +58,7 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 	case "/clear":
 		return s.cmdClear()
 	case "/quit":
+		s.Cleanup()
 		return s, screens.Quit()
 	case "/me":
 		return s.cmdMe(args)
@@ -84,8 +76,7 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 }
 
 // ---------------------------------------------------------------------------
-// Per-command handlers, kept as methods on *Screen so they have direct access
-// to the channel list and posting helpers.
+// Per-command handlers
 // ---------------------------------------------------------------------------
 
 func (s *Screen) cmdHelp() (*Screen, tea.Cmd) {
@@ -93,15 +84,16 @@ func (s *Screen) cmdHelp() (*Screen, tea.Cmd) {
 	for _, c := range builtins {
 		lines = append(lines, fmt.Sprintf("  %-13s %s", c.name, c.desc))
 	}
-	lines = append(lines, "navigation: esc returns to lobby from any screen · ctrl+c quits")
+	lines = append(lines, "ctrl+c quits")
 	s.postSystem(strings.Join(lines, "\n"))
 	return s, nil
 }
 
+// cmdClear is intentionally local-only: it just hides scrollback for this
+// session by jumping scroll past the end. The hub still holds the history.
 func (s *Screen) cmdClear() (*Screen, tea.Cmd) {
-	if ch := s.activeChannel(); ch != nil {
-		ch.Messages = nil
-	}
+	msgs, _ := s.hub.Messages(s.activeName)
+	s.chatScroll = len(msgs)
 	return s, nil
 }
 
@@ -110,12 +102,8 @@ func (s *Screen) cmdMe(args []string) (*Screen, tea.Cmd) {
 	if body == "" {
 		return s, nil
 	}
-	if ch := s.activeChannel(); ch != nil {
-		ch.Messages = append(ch.Messages, ui.ChatMessage{
-			Author: MeUser, Body: body, At: time.Now(), Kind: ui.ChatAction,
-		})
-		s.chatScroll = 0
-	}
+	s.hub.Post(s.activeName, s.meUser, body, ui.ChatAction)
+	s.chatScroll = 0
 	return s, nil
 }
 
@@ -128,54 +116,44 @@ func (s *Screen) cmdJoin(args []string) (*Screen, tea.Cmd) {
 	if !strings.HasPrefix(name, "#") {
 		name = "#" + name
 	}
-	idx := -1
-	for i, ch := range s.channels {
-		if ch.Name == name {
-			idx = i
-			break
-		}
+	if !s.hub.HasChannel(name) {
+		s.hub.CreateChannel(name)
 	}
-	if idx < 0 {
-		s.channels = append(s.channels, Channel{
-			Name: name, Members: 1, Online: 1,
-		})
-		idx = len(s.channels) - 1
-	}
-	s.chatActive = idx
+	prev := s.activeName
+	s.activeName = name
+	s.hub.SetViewing(s.subID, name)
 	s.chatScroll = 0
-	s.channels[idx].Messages = append(s.channels[idx].Messages, ui.ChatMessage{
-		Author: MeUser, Body: "joined " + name, At: time.Now(), Kind: ui.ChatJoin,
-	})
+	if prev != name {
+		s.hub.Post(name, s.meUser, "joined "+name, ui.ChatJoin)
+	}
 	return s, nil
 }
 
 func (s *Screen) cmdLeave() (*Screen, tea.Cmd) {
-	if s.chatActive > 0 {
-		leaving := s.channels[s.chatActive].Name
-		s.chatActive = 0
-		s.chatScroll = 0
-		s.postSystem(MeUser + " left " + leaving)
+	if s.activeName == "#lobby" {
+		s.postSystem("you're already in #lobby — try /quit to exit")
 		return s, nil
 	}
-	s.postSystem("you're already in #lobby — try /quit to exit")
+	leaving := s.activeName
+	s.hub.Post(leaving, s.meUser, "left "+leaving, ui.ChatJoin)
+	s.activeName = "#lobby"
+	s.hub.SetViewing(s.subID, "#lobby")
+	s.chatScroll = 0
 	return s, nil
 }
 
 func (s *Screen) cmdList() (*Screen, tea.Cmd) {
+	names := s.hub.ChannelNames()
 	lines := []string{"channels:"}
-	for _, ch := range s.channels {
-		lines = append(lines, fmt.Sprintf("  %-20s  %4d online", ch.Name, ch.Online))
+	for _, n := range names {
+		lines = append(lines, fmt.Sprintf("  %-20s  %4d online", n, s.hub.Online(n)))
 	}
 	s.postSystem(strings.Join(lines, "\n"))
 	return s, nil
 }
 
 func (s *Screen) cmdWho() (*Screen, tea.Cmd) {
-	ch := s.activeChannel()
-	if ch == nil {
-		return s, nil
-	}
-	s.postSystem("active in " + ch.Name + ": @yamlhater @nullpointer @devops_bard @junior_dev @standup_ghost @vibe_master @ai_grifter @senior_intern @recovering_pm @borrow_checker @corporate_villain @boggy")
+	n := s.hub.Online(s.activeName)
+	s.postSystem(fmt.Sprintf("%d connected in %s", n, s.activeName))
 	return s, nil
 }
-

@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -88,7 +87,3 @@ func NickColor(nick string) lipgloss.Color {
 	return palette[h%len(palette)]
 }
 
-// FormatMembers returns a "%d online · %d members" style string for headers.
-func FormatMembers(online, members int) string {
-	return fmt.Sprintf("%d online · %d members", online, members)
-}

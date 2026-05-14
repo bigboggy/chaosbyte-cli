@@ -10,7 +10,7 @@
 > a 90s-style chat lobby for devs and vibe coders, in your terminal.
 
 **vibespace** is an IRC-style TUI chat: channels, slash commands, autocomplete,
-message history. That's it — no feeds, no games, no spotlight. Just chat.
+message history.
 
 Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
 [lipgloss](https://github.com/charmbracelet/lipgloss).

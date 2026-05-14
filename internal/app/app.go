@@ -1,11 +1,11 @@
 // Package app is the bubbletea Model that wires everything together.
 //
-// The app owns the map of Screens (intro + lobby) and the viewport dimensions.
-// Each Screen is responsible for its own state — the dependency graph is a
-// star: app → screens, screens never reach back into app or sideways.
+// One App per session. App owns the intro + lobby screens for this session;
+// chat state itself lives in the shared *hub.Hub passed to New.
 package app
 
 import (
+	"github.com/bchayka/gitstatus/internal/hub"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
 	"github.com/bchayka/gitstatus/internal/screens/lobby"
@@ -17,19 +17,23 @@ import (
 type App struct {
 	screens map[string]screens.Screen
 	current string
+	lobby   *lobby.Screen // kept for Cleanup
 
 	width, height int
 }
 
-// New constructs the app with all screens wired up. The intro screen is the
-// initial active screen; it emits Navigate(lobby) when its animation ends.
-func New() *App {
+// New constructs a session app. meUser is the participant's display name (e.g.
+// "@boggy"); h is the shared chat backend. The intro screen is the initial
+// active screen; it emits Navigate(lobby) when its animation ends.
+func New(meUser string, h *hub.Hub) *App {
+	lob := lobby.New(meUser, h)
 	return &App{
 		screens: map[string]screens.Screen{
 			screens.IntroID: intro.New(),
-			screens.LobbyID: lobby.New(),
+			screens.LobbyID: lob,
 		},
 		current: screens.IntroID,
+		lobby:   lob,
 	}
 }
 
@@ -41,6 +45,14 @@ func (a *App) Init() tea.Cmd {
 		}
 	}
 	return tea.Batch(cmds...)
+}
+
+// Cleanup releases per-session resources (hub subscription). Safe to call more
+// than once.
+func (a *App) Cleanup() {
+	if a.lobby != nil {
+		a.lobby.Cleanup()
+	}
 }
 
 // activeScreen returns the screen referenced by a.current, falling back to the

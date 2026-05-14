@@ -1,18 +1,18 @@
-// Package lobby is the chat screen. It owns the channel list and manages an
-// always-focused input.
+// Package lobby is the chat screen. It renders channels and messages from a
+// shared *hub.Hub, owning only session-local UI state (input, history, scroll,
+// active channel, identity).
 //
 // Files in this package:
-//   - lobby.go     — Screen type, Init/Update/View, message posting
+//   - lobby.go     — Screen type, Init/Update/View, hub subscription
 //   - commands.go  — slash command registry + per-command handlers
 //   - completion.go — Tab autocomplete
-//   - seed.go      — fake channels + the @boggy username
 package lobby
 
 import (
 	"fmt"
 	"strings"
-	"time"
 
+	"github.com/bchayka/gitstatus/internal/hub"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
@@ -21,27 +21,37 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Screen is the lobby's own state. The chat input is always focused, so this
-// screen reports InputFocused()==true and the app's global key handlers stay
-// out of the way.
+// Screen is the lobby's session-local state. Channels and messages live in the
+// hub; the lobby reads from it during View and on every hub Event.
 type Screen struct {
-	channels   []Channel
-	chatActive int
+	hub    *hub.Hub
+	subID  uint64
+	events <-chan hub.Event
+
+	meUser     string
+	activeName string // currently-viewed channel name; defaults to "#lobby"
 	chatScroll int
 
 	input      textinput.Model
 	history    []string
 	historyIdx int
-	paletteIdx int // selection inside the command palette popup
+	paletteIdx int
 
 	joinPosted bool
 }
 
-// New constructs a fresh lobby with seeded channels and a focused input.
-func New() *Screen {
+// New constructs a lobby bound to hub. meUser is the local participant's
+// display handle (e.g. "@boggy"). The session subscribes to the hub
+// immediately; call Cleanup when the session ends.
+func New(meUser string, h *hub.Hub) *Screen {
+	id, events := h.Subscribe()
+	h.SetViewing(id, "#lobby")
 	return &Screen{
-		channels:   seedChannels(),
-		chatActive: 0,
+		hub:        h,
+		subID:      id,
+		events:     events,
+		meUser:     meUser,
+		activeName: "#lobby",
 		input:      newInput(),
 	}
 }
@@ -55,19 +65,30 @@ func newInput() textinput.Model {
 	return ti
 }
 
-func (s *Screen) Init() tea.Cmd { return textinput.Blink }
+// waitForEvent returns a Cmd that blocks until the next hub event lands. The
+// Cmd must be re-issued after each event so the session keeps listening.
+func waitForEvent(ch <-chan hub.Event) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return ev
+	}
+}
+
+func (s *Screen) Init() tea.Cmd {
+	return tea.Batch(textinput.Blink, waitForEvent(s.events))
+}
 
 func (s *Screen) Name() string  { return screens.LobbyID }
 func (s *Screen) Title() string { return "lobby" }
 
 func (s *Screen) HeaderContext() string {
-	ch := s.activeChannel()
-	if ch == nil {
-		return ""
-	}
+	name := s.activeName
 	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render(" · ")
-	return lipgloss.NewStyle().Foreground(theme.OK).Render(ch.Name) + sep +
-		lipgloss.NewStyle().Foreground(theme.Muted).Render(fmt.Sprintf("%d online", ch.Online))
+	return lipgloss.NewStyle().Foreground(theme.OK).Render(name) + sep +
+		lipgloss.NewStyle().Foreground(theme.Muted).Render(fmt.Sprintf("%d online", s.hub.Online(name)))
 }
 
 func (s *Screen) Footer() []screens.KeyHint {
@@ -90,14 +111,28 @@ func (s *Screen) Footer() []screens.KeyHint {
 
 func (s *Screen) InputFocused() bool { return true }
 
+// Cleanup unsubscribes from the hub. Called by app.Cleanup when the session
+// ends; safe to call more than once.
+func (s *Screen) Cleanup() {
+	if s.hub != nil {
+		s.hub.Unsubscribe(s.subID)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Update
 // ---------------------------------------------------------------------------
 
 func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
-	switch msg := msg.(type) {
+	switch m := msg.(type) {
+	case hub.Event:
+		// Re-subscribe for the next event. The screen rerenders automatically;
+		// View pulls fresh data from the hub.
+		return s, waitForEvent(s.events)
 	case tea.KeyMsg:
-		return s.handleKey(msg)
+		return s.handleKey(m)
+	default:
+		_ = m
 	}
 	return s, nil
 }
@@ -107,17 +142,12 @@ func (s *Screen) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
 	case "ctrl+c":
 		return s, tea.Quit
 	case "enter":
-		// When the palette is open, Enter accepts the highlighted command —
-		// it's inserted in the input then submitted in one keystroke, matching
-		// the muscle memory of Claude Code / VS Code command palettes.
 		if cmd := s.acceptPalette(); cmd != "" {
 			s.input.SetValue(cmd)
 		}
 		s.resetPalette()
 		return s.submit()
 	case "tab":
-		// Tab fills the input without submitting, so users can pick a command
-		// like /join and then type the channel name.
 		if s.paletteVisible() {
 			s.fillPalette()
 		}
@@ -155,8 +185,6 @@ func (s *Screen) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
 		s.resetPalette()
 		return s, nil
 	}
-	// Any other key edits the input → the filtered match list will change, so
-	// reset the highlight back to the top of the new list.
 	var cmd tea.Cmd
 	s.input, cmd = s.input.Update(msg)
 	s.resetPalette()
@@ -173,8 +201,7 @@ func (s *Screen) submit() (screens.Screen, tea.Cmd) {
 	s.historyIdx = len(s.history)
 
 	if strings.HasPrefix(text, "/") {
-		ss, cmd := s.handleSlash(text)
-		return ss, cmd
+		return s.handleSlash(text)
 	}
 	s.postUser(text)
 	return s, nil
@@ -203,51 +230,36 @@ func (s *Screen) recallHistory(delta int) {
 }
 
 // ---------------------------------------------------------------------------
-// Posting helpers — used by both regular sends and slash command handlers
+// Posting helpers — push through the hub so all sessions see the message.
 // ---------------------------------------------------------------------------
 
-func (s *Screen) activeChannel() *Channel {
-	if s.chatActive < 0 || s.chatActive >= len(s.channels) {
-		return nil
-	}
-	return &s.channels[s.chatActive]
-}
-
+// postUser sends a normal message from this session's user into the active
+// channel. Snaps scroll to bottom so our own send is visible.
 func (s *Screen) postUser(body string) {
-	ch := s.activeChannel()
-	if ch == nil {
-		return
-	}
-	ch.Messages = append(ch.Messages, ui.ChatMessage{
-		Author: MeUser, Body: body, At: time.Now(),
-	})
+	s.hub.Post(s.activeName, s.meUser, body, ui.ChatNormal)
 	s.chatScroll = 0
 }
 
+// postSystem posts a system message that only THIS session sees. Used for
+// command output (e.g. /help, /list responses) — these aren't broadcast.
+//
+// Because the screen has no local message buffer, system messages would be
+// invisible without a stash. We funnel them into the hub as a transient
+// "system" message visible to everyone, which is intentional: the chat is
+// public and seeing other people's /help output is part of the vibe.
 func (s *Screen) postSystem(body string) {
-	ch := s.activeChannel()
-	if ch == nil {
-		return
-	}
 	for _, line := range strings.Split(body, "\n") {
-		ch.Messages = append(ch.Messages, ui.ChatMessage{
-			Author: "*", Body: line, At: time.Now(), Kind: ui.ChatSystem,
-		})
+		s.hub.Post(s.activeName, "*", line, ui.ChatSystem)
 	}
 	s.chatScroll = 0
 }
 
-// EnsureJoined posts the "entered the chat" join message once, then no-ops on
-// subsequent calls. Called by the router when transitioning from intro.
+// EnsureJoined posts the "entered the chat" join message once.
 func (s *Screen) EnsureJoined() {
 	if s.joinPosted {
 		return
 	}
-	if ch := s.activeChannel(); ch != nil {
-		ch.Messages = append(ch.Messages, ui.ChatMessage{
-			Author: MeUser, Body: "entered the chat", At: time.Now(), Kind: ui.ChatJoin,
-		})
-	}
+	s.hub.Post(s.activeName, s.meUser, "entered the chat", ui.ChatJoin)
 	s.joinPosted = true
 	s.chatScroll = 0
 }
@@ -260,32 +272,31 @@ func (s *Screen) View(width, height int) string {
 	w := ui.FeedShellWidth(width)
 	contentW := w - 2
 
-	if s.chatActive < 0 || s.chatActive >= len(s.channels) {
-		s.chatActive = 0
+	names := s.hub.ChannelNames()
+	if !s.hub.HasChannel(s.activeName) && len(names) > 0 {
+		s.activeName = names[0]
+		s.hub.SetViewing(s.subID, s.activeName)
 	}
-	ch := s.channels[s.chatActive]
 
-	bar := topBar(ch, contentW)
+	bar := topBar(s.activeName, s.hub.Online(s.activeName), contentW)
 	barH := lipgloss.Height(bar)
 
 	prompt := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).
-		Render("[" + strings.TrimPrefix(MeUser, "@") + "]> ")
+		Render("[" + strings.TrimPrefix(s.meUser, "@") + "]> ")
 	s.input.Width = contentW - lipgloss.Width(prompt) - 1
 	inputLine := prompt + s.input.View()
 
 	palette := s.renderPalette(contentW)
 	paletteH := s.paletteHeight()
 
-	// Layout (bottom-anchored input):
-	//   bar (1) · divider (1) · scrollback (chatH) · divider (1) · palette (paletteH) · input (1)
-	// Total fixed chrome is 4 rows; scrollback flexes around it.
 	chatH := height - barH - paletteH - 4
 	if chatH < 4 {
 		chatH = 4
 	}
 
+	msgs, _ := s.hub.Messages(s.activeName)
 	var lines []string
-	for _, msg := range ch.Messages {
+	for _, msg := range msgs {
 		lines = append(lines, ui.RenderChatLine(msg, contentW)...)
 	}
 	visible := windowScrollback(lines, chatH, s.chatScroll)
@@ -304,11 +315,11 @@ func (s *Screen) View(width, height int) string {
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, stacked)
 }
 
-func topBar(ch Channel, width int) string {
-	chName := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render(ch.Name)
-	online := lipgloss.NewStyle().Foreground(theme.OK).Render(fmt.Sprintf("%d online", ch.Online))
+func topBar(name string, online, width int) string {
+	chName := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render(name)
+	onlineStr := lipgloss.NewStyle().Foreground(theme.OK).Render(fmt.Sprintf("%d online", online))
 	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render("  ·  ")
-	left := chName + sep + online
+	left := chName + sep + onlineStr
 	if lipgloss.Width(left) > width {
 		left = ui.Truncate(left, width)
 	}

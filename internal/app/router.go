@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/bchayka/gitstatus/internal/hub"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/screens/lobby"
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,6 +29,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.NavigateMsg:
 		return a, a.navigate(m.Target)
+
+	case hub.Event:
+		// Hub broadcasts always go to the lobby — it's the screen that owns
+		// the subscription — regardless of which screen is currently active.
+		// Without this, events that arrive while the intro is still showing
+		// would be swallowed and the subscription would stall.
+		ns, cmd := a.screens[screens.LobbyID].Update(m)
+		a.screens[screens.LobbyID] = ns
+		return a, cmd
 
 	case tea.KeyMsg:
 		return a.handleKey(m)
