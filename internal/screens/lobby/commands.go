@@ -22,28 +22,19 @@ type command struct {
 // shown in autocomplete. Aliases are wired in `aliases` and don't appear here
 // to keep the suggestion strip tidy.
 var builtins = []command{
-	{"/news", "open news feed"},
-	{"/spotlight", "open featured project"},
-	{"/resources", "open skills & github repos"},
-	{"/games", "open mini-games"},
-	{"/discussions", "open commit feed"},
 	{"/join", "join or switch channel"},
 	{"/leave", "return to #lobby"},
 	{"/list", "list channels"},
 	{"/who", "list users"},
-	{"/topic", "view or set topic"},
 	{"/me", "third-person action"},
 	{"/clear", "clear scrollback"},
 	{"/help", "show all commands"},
-	{"/quit", "exit chaosbyte"},
+	{"/quit", "exit vibespace"},
 }
 
 // aliases maps an alternate spelling to its canonical command name. Aliases
 // don't show in autocomplete.
 var aliases = map[string]string{
-	"/skills":   "/resources",
-	"/commits":  "/discussions",
-	"/feed":     "/discussions",
 	"/exit":     "/quit",
 	"/bye":      "/quit",
 	"/part":     "/leave",
@@ -71,16 +62,6 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 	args := parts[1:]
 
 	switch name {
-	case "/news":
-		return s, screens.Navigate(screens.NewsID)
-	case "/spotlight":
-		return s, screens.Navigate(screens.SpotlightID)
-	case "/resources":
-		return s, screens.Navigate(screens.ResourcesID)
-	case "/games":
-		return s, screens.Navigate(screens.GamesID)
-	case "/discussions":
-		return s, screens.Navigate(screens.DiscussionsID)
 	case "/help":
 		return s.cmdHelp()
 	case "/clear":
@@ -97,8 +78,6 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s.cmdList()
 	case "/who":
 		return s.cmdWho()
-	case "/topic":
-		return s.cmdTopic(args)
 	}
 	s.postSystem(fmt.Sprintf("unknown command %q — try /help", parts[0]))
 	return s, nil
@@ -158,8 +137,7 @@ func (s *Screen) cmdJoin(args []string) (*Screen, tea.Cmd) {
 	}
 	if idx < 0 {
 		s.channels = append(s.channels, Channel{
-			Name: name, Topic: "(freshly minted) — claim a topic with /topic",
-			Members: 1, Online: 1,
+			Name: name, Members: 1, Online: 1,
 		})
 		idx = len(s.channels) - 1
 	}
@@ -186,8 +164,7 @@ func (s *Screen) cmdLeave() (*Screen, tea.Cmd) {
 func (s *Screen) cmdList() (*Screen, tea.Cmd) {
 	lines := []string{"channels:"}
 	for _, ch := range s.channels {
-		lines = append(lines, fmt.Sprintf("  %-20s  %4d online · %s",
-			ch.Name, ch.Online, truncate(ch.Topic, 36)))
+		lines = append(lines, fmt.Sprintf("  %-20s  %4d online", ch.Name, ch.Online))
 	}
 	s.postSystem(strings.Join(lines, "\n"))
 	return s, nil
@@ -202,27 +179,3 @@ func (s *Screen) cmdWho() (*Screen, tea.Cmd) {
 	return s, nil
 }
 
-func (s *Screen) cmdTopic(args []string) (*Screen, tea.Cmd) {
-	ch := s.activeChannel()
-	if ch == nil {
-		return s, nil
-	}
-	body := strings.Join(args, " ")
-	if body == "" {
-		s.postSystem("topic: " + ch.Topic)
-		return s, nil
-	}
-	ch.Topic = body
-	s.postSystem(MeUser + " set topic: " + body)
-	return s, nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	if n <= 1 {
-		return s[:n]
-	}
-	return s[:n-1] + "…"
-}

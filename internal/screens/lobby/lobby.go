@@ -1,6 +1,5 @@
-// Package lobby is the chat-style entry point that doubles as the app's home
-// screen. It owns the channel list, manages an always-focused input, and
-// routes slash commands to other screens via screens.Navigate.
+// Package lobby is the chat screen. It owns the channel list and manages an
+// always-focused input.
 //
 // Files in this package:
 //   - lobby.go     — Screen type, Init/Update/View, message posting
@@ -308,10 +307,8 @@ func (s *Screen) View(width, height int) string {
 func topBar(ch Channel, width int) string {
 	chName := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render(ch.Name)
 	online := lipgloss.NewStyle().Foreground(theme.OK).Render(fmt.Sprintf("%d online", ch.Online))
-	topic := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).
-		Render("topic: " + ch.Topic)
 	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render("  ·  ")
-	left := chName + sep + online + sep + topic
+	left := chName + sep + online
 	if lipgloss.Width(left) > width {
 		left = ui.Truncate(left, width)
 	}

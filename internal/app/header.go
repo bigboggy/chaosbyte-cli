@@ -16,7 +16,7 @@ import (
 func (a *App) renderHeader() string {
 	scr := a.activeScreen()
 
-	title := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render("chaosbyte")
+	title := lipgloss.NewStyle().Foreground(theme.Accent2).Bold(true).Render("vibespace")
 	sep := lipgloss.NewStyle().Foreground(theme.Muted).Render(" · ")
 
 	chip := lipgloss.NewStyle().

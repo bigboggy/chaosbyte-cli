@@ -14,7 +14,6 @@ const MeUser = "@boggy"
 // package — no other screen reaches in.
 type Channel struct {
 	Name     string
-	Topic    string
 	Members  int
 	Online   int
 	Unread   int
@@ -26,11 +25,9 @@ func seedChannels() []Channel {
 	h := func(d time.Duration) time.Time { return now.Add(-d) }
 	return []Channel{
 		{
-			Name: "#lobby", Topic: "main hall · be excellent · /help for commands",
-			Members: 4218, Online: 612,
+			Name: "#lobby", Members: 4218, Online: 612,
 			Messages: []ui.ChatMessage{
-				{Author: "server", Body: "MOTD: welcome to chaosbyte — type /help to see what you can do", At: h(2 * time.Hour), Kind: ui.ChatSystem},
-				{Author: "server", Body: "topic: main hall · be excellent · /help for commands", At: h(2 * time.Hour), Kind: ui.ChatSystem},
+				{Author: "server", Body: "MOTD: welcome to vibespace — type /help to see what you can do", At: h(2 * time.Hour), Kind: ui.ChatSystem},
 				{Author: "@yamlhater", Body: "joined the lobby", At: h(48 * time.Minute), Kind: ui.ChatJoin},
 				{Author: "@yamlhater", Body: "anyone else's CI just decide today was the day to be slow", At: h(38 * time.Minute), Kind: ui.ChatNormal},
 				{Author: "@nullpointer", Body: "ours is just printing fortune cookies now. devops did it.", At: h(36 * time.Minute), Kind: ui.ChatNormal},
@@ -47,16 +44,14 @@ func seedChannels() []Channel {
 			},
 		},
 		{
-			Name: "#general", Topic: "general dev chatter",
-			Members: 1842, Online: 312,
+			Name: "#general", Members: 1842, Online: 312,
 			Messages: []ui.ChatMessage{
 				{Author: "@vibe_master", Body: "anyone tried jujutsu yet", At: h(50 * time.Minute), Kind: ui.ChatNormal},
 				{Author: "@borrow_checker", Body: "yes. it's git but without the trauma. would recommend.", At: h(45 * time.Minute), Kind: ui.ChatNormal},
 			},
 		},
 		{
-			Name: "#vibe-coding", Topic: "for when the linter has feelings",
-			Members: 904, Online: 198,
+			Name: "#vibe-coding", Members: 904, Online: 198,
 			Messages: []ui.ChatMessage{
 				{Author: "@vibe_master", Body: "tonight's stack: bun + zod + a single prayer", At: h(2 * time.Hour), Kind: ui.ChatNormal},
 				{Author: "@yamlhater", Body: "you forgot the README that lies about what it does", At: h(95 * time.Minute), Kind: ui.ChatNormal},
@@ -71,8 +66,7 @@ func seedChannels() []Channel {
 			},
 		},
 		{
-			Name: "#rust-anonymous", Topic: "you don't have to talk about rust. but you will.",
-			Members: 521, Online: 87,
+			Name: "#rust-anonymous", Members: 521, Online: 87,
 			Messages: []ui.ChatMessage{
 				{Author: "@borrow_checker", Body: "i fought the compiler. the compiler won. again.", At: h(4 * time.Hour), Kind: ui.ChatNormal},
 				{Author: "@nullpointer", Body: "you'll thank it in production", At: h(3*time.Hour + 50*time.Minute), Kind: ui.ChatNormal},
@@ -82,8 +76,7 @@ func seedChannels() []Channel {
 			},
 		},
 		{
-			Name: "#help", Topic: "actual help, occasionally",
-			Members: 2104, Online: 411,
+			Name: "#help", Members: 2104, Online: 411,
 			Messages: []ui.ChatMessage{
 				{Author: "@junior_dev", Body: "is it normal for `git push --force` to feel this good", At: h(50 * time.Minute), Kind: ui.ChatNormal},
 				{Author: "@devops_bard", Body: "yes. that's how they get you.", At: h(48 * time.Minute), Kind: ui.ChatNormal},
@@ -91,16 +84,14 @@ func seedChannels() []Channel {
 			},
 		},
 		{
-			Name: "#side-projects", Topic: "show what you're building (or pretending to)",
-			Members: 1207, Online: 256,
+			Name: "#side-projects", Members: 1207, Online: 256,
 			Messages: []ui.ChatMessage{
 				{Author: "@vibe_master", Body: "spent 6 hours on the landing page, 12 minutes on the product", At: h(3 * time.Hour), Kind: ui.ChatNormal},
 				{Author: "@yamlhater", Body: "the landing page IS the product", At: h(2*time.Hour + 50*time.Minute), Kind: ui.ChatNormal},
 			},
 		},
 		{
-			Name: "#offtopic", Topic: "feelings, snacks, and bad takes",
-			Members: 887, Online: 142,
+			Name: "#offtopic", Members: 887, Online: 142,
 			Messages: []ui.ChatMessage{
 				{Author: "@standup_ghost", Body: "objectively the best ide is the one that doesn't crash today", At: h(6 * time.Hour), Kind: ui.ChatNormal},
 				{Author: "@yamlhater", Body: "that's a moving target", At: h(5*time.Hour + 50*time.Minute), Kind: ui.ChatNormal},

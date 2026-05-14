@@ -1,4 +1,4 @@
-// chaosbyte — a TUI lobby for devs and vibe coders.
+// vibespace — a TUI lobby for devs and vibe coders.
 //
 // All real work lives in internal/. main.go is just the entrypoint that wires
 // the bubbletea program to internal/app.
@@ -15,7 +15,7 @@ import (
 func main() {
 	p := tea.NewProgram(app.New(), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "chaosbyte: %v\n", err)
+		fmt.Fprintf(os.Stderr, "vibespace: %v\n", err)
 		os.Exit(1)
 	}
 }

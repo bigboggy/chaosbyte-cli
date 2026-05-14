@@ -8,7 +8,6 @@
 package screens
 
 import (
-	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -61,39 +60,13 @@ func Navigate(target string) tea.Cmd {
 	return func() tea.Msg { return NavigateMsg{Target: target} }
 }
 
-// FlashMsg sets the transient status message shown in the footer.
-type FlashMsg struct{ Text string }
-
-// Flash returns a tea.Cmd that posts a footer flash.
-func Flash(text string) tea.Cmd {
-	return func() tea.Msg { return FlashMsg{Text: text} }
-}
-
-// QuitMsg signals an orderly quit (used by /quit and similar slash commands).
-type QuitMsg struct{}
-
 // Quit returns a tea.Cmd that quits the app.
 func Quit() tea.Cmd {
 	return tea.Quit
 }
 
-// OpenURL launches the OS browser at url and surfaces the outcome as a footer
-// flash. Screens use this for "enter to open" affordances on news items, repo
-// listings, spotlight cards, etc. — anywhere a URL is the expected target.
-func OpenURL(url string) tea.Cmd {
-	if err := ui.OpenURL(url); err != nil {
-		return Flash("couldn't open: " + err.Error())
-	}
-	return Flash("opened: " + url)
-}
-
 // Screen ids — used as keys in the app's screen map and as Navigate targets.
 const (
-	IntroID       = "intro"
-	LobbyID       = "lobby"
-	NewsID        = "news"
-	ResourcesID   = "resources"
-	SpotlightID   = "spotlight"
-	GamesID       = "games"
-	DiscussionsID = "discussions"
+	IntroID = "intro"
+	LobbyID = "lobby"
 )

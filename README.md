@@ -7,10 +7,10 @@
   ╚═══╝   ╚═╝ ╚═════╝  ╚══════╝ ╚══════╝ ╚═╝      ╚═╝  ╚═╝  ╚═════╝ ╚══════╝
 ```
 
-> an all-in-one place for devs and vibe coders, in your terminal.
+> a 90s-style chat lobby for devs and vibe coders, in your terminal.
 
-**vibespace** is a TUI lobby app. You start in a 90s-style chat,
-then you `/news`, `/spotlight`, `/games`, `/resources`, or `/discussions` your way around.
+**vibespace** is an IRC-style TUI chat: channels, slash commands, autocomplete,
+message history. That's it — no feeds, no games, no spotlight. Just chat.
 
 Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
 [lipgloss](https://github.com/charmbracelet/lipgloss).
@@ -43,19 +43,6 @@ go run .
 
 Requires Go 1.24+ and a terminal at least 80×22. Catppuccin Mocha palette throughout.
 
----
-
-## What's in the lobby
-
-| Area | Slash command | What it is |
-|------|---------------|------------|
-| **Lobby** | (default) | IRC-style chat with channels, autocompleted slash commands, message history |
-| **News** | `/news` | Combined feed: HN, Lobsters, /r/programming, DevHQ, ArsTechnica |
-| **Spotlight** | `/spotlight` | One featured project + live discussion. Rotates every 5 minutes. |
-| **Resources** | `/resources` (alias `/skills`) | Trending skills, top skills, highlighted GitHub repos, search |
-| **Games** | `/games` | Mini-games. **Bug Hunter** is playable, the rest are aspirational. |
-| **Discussions** | `/discussions` (alias `/commits`, `/feed`) | Threaded commit-style posts across branches |
-
 The intro animation plays once on startup — `VIBESPACE` boots, holds, collapses to a single
 character, then drops you in `#lobby`. Press any key to skip.
 
@@ -63,53 +50,32 @@ character, then drops you in `#lobby`. Press any key to skip.
 
 ## Slash commands
 
-Type `/` in the lobby and Tab to cycle suggestions.
+Type `/` and Tab to cycle suggestions.
 
 ```
-/news          open news feed
-/spotlight     open featured project
-/resources     open skills & github repos
-/games         open mini-games
-/discussions   open commit feed
 /join #name    join or switch channel
 /leave         return to #lobby
 /list          list channels
 /who           list users
-/topic [text]  view or set topic
 /me <action>   third-person action
 /clear         clear scrollback
 /help          show all commands
 /quit          exit vibespace
 ```
 
-Aliases: `/skills` → `/resources`, `/commits` → `/discussions`, `/exit` / `/bye` → `/quit`,
-`/part` → `/leave`, `/channels` → `/list`, `/users` → `/who`, `/?` → `/help`.
+Aliases: `/exit` / `/bye` → `/quit`, `/part` → `/leave`, `/channels` → `/list`,
+`/users` → `/who`, `/?` → `/help`.
 
 ---
 
 ## Keyboard
 
-**Anywhere**
-- `ctrl+c` — quit
-- `esc` — back to lobby (or pop one sub-mode if you're in a popup)
-
-**Lobby**
 - `enter` — send / run slash command
 - `tab` / `shift+tab` — cycle autocomplete
-- `↑` / `↓` — recall message history
+- `↑` / `↓` — recall message history (or move palette selection when open)
 - `pgup` / `pgdn` — scroll the scrollback
-
-**Other screens**
-- `j` / `k` — move
-- `enter` — open
-- See the footer hints — they update per screen
-
-**Discussions** (the original feed)
-- `n` — new commit
-- `enter` — open post + comments
-- `l` — like
-- `tab` — next branch · `b` — branch picker
-- `r` — reply (inside a post)
+- `esc` — clear input / dismiss palette
+- `ctrl+c` — quit
 
 ---
 
@@ -122,20 +88,14 @@ vibespace/
     ├── theme/              # Catppuccin palette, shared styles, logo
     ├── ui/                 # layout + text + chat helpers
     ├── screens/
-    │   ├── screen.go       # Screen interface + Navigate/Flash messages
+    │   ├── screen.go       # Screen interface + Navigate messages
     │   ├── intro/          # boot animation
-    │   ├── lobby/          # chat, slash commands, autocomplete
-    │   ├── news/           # combined news feed
-    │   ├── resources/      # skills + repos + search
-    │   ├── spotlight/      # featured project + live chat
-    │   ├── games/          # launcher + bug hunter
-    │   └── discussions/    # threaded commit feed
+    │   └── lobby/          # chat, slash commands, autocomplete
     └── app/                # router, header, footer, top-level View
 ```
 
-Each feature screen implements `screens.Screen` and never imports another
-feature screen. Navigation flows through `screens.Navigate(target)` messages
-caught by `internal/app/router.go`. The dependency graph is a star.
+Each screen implements `screens.Screen`. Navigation flows through
+`screens.Navigate(target)` messages caught by `internal/app/router.go`.
 
 ---
 

@@ -7,8 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// renderFooter builds the bottom status bar: key hints from the active
-// screen, plus any active flash message in green.
+// renderFooter builds the bottom status bar: key hints from the active screen.
 func (a *App) renderFooter() string {
 	hints := a.activeScreen().Footer()
 	var parts []string
@@ -16,11 +15,5 @@ func (a *App) renderFooter() string {
 		parts = append(parts, theme.HelpKey.Render(k.Key)+" "+theme.HelpDesc.Render(k.Desc))
 	}
 	help := strings.Join(parts, "  ·  ")
-
-	flash := ""
-	if a.flash != "" {
-		flash = lipgloss.NewStyle().Foreground(theme.OK).Render("  " + a.flash)
-	}
-	inner := theme.Status.Render(help) + flash
-	return lipgloss.PlaceHorizontal(a.width, lipgloss.Left, inner)
+	return lipgloss.PlaceHorizontal(a.width, lipgloss.Left, theme.Status.Render(help))
 }

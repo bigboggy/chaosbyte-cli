@@ -13,8 +13,8 @@ import (
 const palettePageSize = 10
 
 // commandColWidth is the fixed left-column width for the command name. The
-// description fills the remaining width. 14 fits /discussions plus padding.
-const commandColWidth = 14
+// description fills the remaining width.
+const commandColWidth = 10
 
 // matchCommands returns canonical commands whose names start with prefix.
 // Aliases are excluded so the palette stays compact.
