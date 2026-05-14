@@ -8,7 +8,6 @@
 //
 //	VIBESPACE_ADDR           listen address, default ":2222"
 //	VIBESPACE_HOSTKEY        host key path, default ".ssh/id_ed25519" (auto-generated on first run)
-//	VIBESPACE_MAX_SESS       max concurrent sessions, default 64
 //	VIBESPACE_GH_CLIENT_ID   GitHub OAuth app client id (enables /auth github)
 //	VIBESPACE_IDENTITY_PATH  path to identity store JSON, default "./identities.json"
 //
@@ -23,9 +22,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -53,7 +50,6 @@ func main() {
 
 	addr := envOr("VIBESPACE_ADDR", ":2222")
 	hostKey := envOr("VIBESPACE_HOSTKEY", ".ssh/id_ed25519")
-	maxSess := envInt("VIBESPACE_MAX_SESS", 64)
 	ghClientID := os.Getenv("VIBESPACE_GH_CLIENT_ID")
 	identityPath := envOr("VIBESPACE_IDENTITY_PATH", "./identities.json")
 
@@ -70,8 +66,6 @@ func main() {
 	} else {
 		log.Printf("github auth disabled (set VIBESPACE_GH_CLIENT_ID to enable)")
 	}
-
-	var active atomic.Int64
 
 	s, err := wish.NewServer(
 		wish.WithAddress(addr),
@@ -94,7 +88,7 @@ func main() {
 		}),
 
 		wish.WithMiddleware(
-			bm.Middleware(teaHandler(world, authSvc, &active, int64(maxSess))),
+			bm.Middleware(teaHandler(world, authSvc)),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -106,7 +100,7 @@ func main() {
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
-	log.Printf("vibespace-server listening on %s (max %d sessions)", addr, maxSess)
+	log.Printf("vibespace-server listening on %s", addr)
 	go func() {
 		if err := s.ListenAndServe(); err != nil && !errors.Is(err, ssh.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
 			log.Fatalf("serve: %v", err)
@@ -123,17 +117,11 @@ func main() {
 }
 
 // teaHandler returns a wish bubbletea handler that builds a per-session app.
-// Enforces maxSess and pumps lifecycle into App.Cleanup when the session ends.
-func teaHandler(world *hub.Hub, authSvc *auth.Service, active *atomic.Int64, maxSess int64) bm.Handler {
+func teaHandler(world *hub.Hub, authSvc *auth.Service) bm.Handler {
 	return func(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
 		_, _, hasPty := sess.Pty()
 		if !hasPty {
 			wish.Fatalln(sess, "vibespace requires an interactive terminal (try without -T)")
-			return nil, nil
-		}
-		if n := active.Add(1); n > maxSess {
-			active.Add(-1)
-			wish.Fatalln(sess, "server full — too many concurrent sessions, try again in a moment")
 			return nil, nil
 		}
 
@@ -148,11 +136,10 @@ func teaHandler(world *hub.Hub, authSvc *auth.Service, active *atomic.Int64, max
 
 		a := app.New(fallback, fingerprint, ghLogin, world, authSvc)
 
-		// Cleanup on session end: SSH closes ctx -> unsubscribe + free slot.
+		// Cleanup on session end: SSH closes ctx -> unsubscribe + free resources.
 		go func() {
 			<-sess.Context().Done()
 			a.Cleanup()
-			active.Add(-1)
 		}()
 
 		return a, []tea.ProgramOption{tea.WithAltScreen()}
@@ -213,15 +200,6 @@ func sanitizeNick(s string) string {
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
-	}
-	return def
-}
-
-func envInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
 	}
 	return def
 }
