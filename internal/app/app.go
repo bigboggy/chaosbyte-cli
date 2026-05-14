@@ -5,6 +5,7 @@
 package app
 
 import (
+	"github.com/bchayka/gitstatus/internal/auth"
 	"github.com/bchayka/gitstatus/internal/hub"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
@@ -22,11 +23,13 @@ type App struct {
 	width, height int
 }
 
-// New constructs a session app. meUser is the participant's display name (e.g.
-// "@boggy"); h is the shared chat backend. The intro screen is the initial
-// active screen; it emits Navigate(lobby) when its animation ends.
-func New(meUser string, h *hub.Hub) *App {
-	lob := lobby.New(meUser, h)
+// New constructs a session app. meUser is the participant's display name
+// (e.g. "@boggy"); fingerprint is the SSH pubkey fingerprint (may be empty);
+// h is the shared chat backend; authSvc may be nil to disable /auth. The
+// intro screen is the initial active screen; it emits Navigate(lobby) when
+// its animation ends.
+func New(meUser, fingerprint string, h *hub.Hub, authSvc *auth.Service) *App {
+	lob := lobby.New(meUser, fingerprint, h, authSvc)
 	return &App{
 		screens: map[string]screens.Screen{
 			screens.IntroID: intro.New(),

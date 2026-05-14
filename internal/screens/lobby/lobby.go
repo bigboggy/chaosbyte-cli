@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bchayka/gitstatus/internal/auth"
 	"github.com/bchayka/gitstatus/internal/hub"
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/theme"
@@ -28,6 +29,9 @@ type Screen struct {
 	subID  uint64
 	events <-chan hub.Event
 
+	auth        *auth.Service // nil disables /auth
+	fingerprint string        // SSH pubkey fingerprint; "" if no key
+
 	meUser     string
 	activeName string // currently-viewed channel name; defaults to "#lobby"
 	chatScroll int
@@ -38,21 +42,26 @@ type Screen struct {
 	paletteIdx int
 
 	joinPosted bool
+	authFlow   *authFlowState
 }
 
-// New constructs a lobby bound to hub. meUser is the local participant's
-// display handle (e.g. "@boggy"). The session subscribes to the hub
-// immediately; call Cleanup when the session ends.
-func New(meUser string, h *hub.Hub) *Screen {
+// New constructs a lobby bound to hub. meUser is the participant's display
+// handle (e.g. "@boggy"). fingerprint is the SSH pubkey fingerprint used to
+// associate this session with a stored identity (may be ""). authSvc may be
+// nil to disable /auth. The session subscribes to the hub immediately; call
+// Cleanup when the session ends.
+func New(meUser, fingerprint string, h *hub.Hub, authSvc *auth.Service) *Screen {
 	id, events := h.Subscribe()
 	h.SetViewing(id, "#lobby")
 	return &Screen{
-		hub:        h,
-		subID:      id,
-		events:     events,
-		meUser:     meUser,
-		activeName: "#lobby",
-		input:      newInput(),
+		hub:         h,
+		subID:       id,
+		events:      events,
+		auth:        authSvc,
+		fingerprint: fingerprint,
+		meUser:      meUser,
+		activeName:  "#lobby",
+		input:       newInput(),
 	}
 }
 
@@ -111,9 +120,10 @@ func (s *Screen) Footer() []screens.KeyHint {
 
 func (s *Screen) InputFocused() bool { return true }
 
-// Cleanup unsubscribes from the hub. Called by app.Cleanup when the session
-// ends; safe to call more than once.
+// Cleanup unsubscribes from the hub and cancels any in-flight auth flow.
+// Called by app.Cleanup when the session ends; safe to call more than once.
 func (s *Screen) Cleanup() {
+	s.cancelAuthFlow()
 	if s.hub != nil {
 		s.hub.Unsubscribe(s.subID)
 	}
@@ -129,6 +139,10 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 		// Re-subscribe for the next event. The screen rerenders automatically;
 		// View pulls fresh data from the hub.
 		return s, waitForEvent(s.events)
+	case authStartedMsg:
+		return s.handleAuthStarted(m)
+	case authResultMsg:
+		return s.handleAuthResult(m)
 	case tea.KeyMsg:
 		return s.handleKey(m)
 	default:
@@ -138,6 +152,18 @@ func (s *Screen) Update(msg tea.Msg) (screens.Screen, tea.Cmd) {
 }
 
 func (s *Screen) handleKey(msg tea.KeyMsg) (screens.Screen, tea.Cmd) {
+	// While the auth modal is up, swallow everything except cancel/quit.
+	if s.authFlow != nil {
+		switch msg.String() {
+		case "ctrl+c":
+			s.cancelAuthFlow()
+			return s, tea.Quit
+		case "esc":
+			s.cancelAuthFlow()
+		}
+		return s, nil
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		return s, tea.Quit
@@ -269,6 +295,10 @@ func (s *Screen) EnsureJoined() {
 // ---------------------------------------------------------------------------
 
 func (s *Screen) View(width, height int) string {
+	if s.authFlow != nil {
+		return s.renderAuthModal(width, height)
+	}
+
 	w := ui.FeedShellWidth(width)
 	contentW := w - 2
 

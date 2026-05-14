@@ -58,6 +58,7 @@ Type `/` and Tab to cycle suggestions.
 /list          list channels
 /who           list users
 /me <action>   third-person action
+/auth github   link a GitHub account (server-side only)
 /clear         clear scrollback
 /help          show all commands
 /quit          exit vibespace
@@ -65,6 +66,12 @@ Type `/` and Tab to cycle suggestions.
 
 Aliases: `/exit` / `/bye` → `/quit`, `/part` → `/leave`, `/channels` → `/list`,
 `/users` → `/who`, `/?` → `/help`.
+
+`/auth github` runs GitHub's [device authorization flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow):
+the server shows you a short code, you paste it at https://github.com/login/device,
+and on success your SSH public key is linked to your GitHub login. Future
+connections from the same key pick up the GitHub handle automatically. Only
+the (fingerprint, login) pair is stored — no access tokens are persisted.
 
 ---
 
@@ -87,12 +94,20 @@ vibespace/
 └── internal/
     ├── theme/              # Catppuccin palette, shared styles, logo
     ├── ui/                 # layout + text + chat helpers
+    ├── hub/                # shared channel/message state (server mode)
+    ├── identity/           # SSH fingerprint -> GitHub login store
+    ├── github/             # device-flow OAuth client
+    ├── auth/               # facade combining identity + github
     ├── screens/
     │   ├── screen.go       # Screen interface + Navigate messages
     │   ├── intro/          # boot animation
-    │   └── lobby/          # chat, slash commands, autocomplete
+    │   └── lobby/          # chat, slash commands, autocomplete, /auth modal
     └── app/                # router, header, footer, top-level View
 ```
+
+For server mode, `cmd/server/main.go` wires a wish SSH server in front of the
+same lobby. Env vars: `VIBESPACE_ADDR`, `VIBESPACE_HOSTKEY`,
+`VIBESPACE_MAX_SESS`, `VIBESPACE_GH_CLIENT_ID`, `VIBESPACE_IDENTITY_PATH`.
 
 Each screen implements `screens.Screen`. Navigation flows through
 `screens.Navigate(target)` messages caught by `internal/app/router.go`.

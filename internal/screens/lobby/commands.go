@@ -23,6 +23,7 @@ var builtins = []command{
 	{"/list", "list channels"},
 	{"/who", "list users in this channel"},
 	{"/me", "third-person action"},
+	{"/auth", "link a GitHub account (/auth github)"},
 	{"/clear", "clear scrollback"},
 	{"/help", "show all commands"},
 	{"/quit", "exit vibespace"},
@@ -70,6 +71,8 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s.cmdList()
 	case "/who":
 		return s.cmdWho()
+	case "/auth":
+		return s.cmdAuth(args)
 	}
 	s.postSystem(fmt.Sprintf("unknown command %q — try /help", parts[0]))
 	return s, nil
@@ -156,4 +159,18 @@ func (s *Screen) cmdWho() (*Screen, tea.Cmd) {
 	n := s.hub.Online(s.activeName)
 	s.postSystem(fmt.Sprintf("%d connected in %s", n, s.activeName))
 	return s, nil
+}
+
+func (s *Screen) cmdAuth(args []string) (*Screen, tea.Cmd) {
+	if len(args) == 0 {
+		s.postSystem("usage: /auth github")
+		return s, nil
+	}
+	switch strings.ToLower(args[0]) {
+	case "github", "gh":
+		return s.cmdAuthGithub()
+	default:
+		s.postSystem("unknown provider — only `github` is supported")
+		return s, nil
+	}
 }
