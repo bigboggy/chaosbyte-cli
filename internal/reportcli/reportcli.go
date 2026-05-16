@@ -21,9 +21,11 @@ import (
 )
 
 // defaultServer is where the subcommand uploads when neither --server nor
-// $VIBESPACE_SERVER is set. Matches the production instance referenced by
-// scripts/deploy.sh.
-const defaultServer = "vibespace.sh:2222"
+// $VIBESPACE_SERVER is set. Port matches the production wish listener on
+// vibespace.sh (the box's OpenSSH is on a different port — see
+// scripts/deploy.sh). Local-mode servers run on :2222 by default; users
+// connecting to localhost should pass --server=localhost:2222.
+const defaultServer = "vibespace.sh:22022"
 
 // Run executes the report subcommand. args is the slice of flag args (i.e.
 // os.Args[2:] after the "report" verb). Exits the process with a non-zero
