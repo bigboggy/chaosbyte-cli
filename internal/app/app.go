@@ -9,6 +9,7 @@ import (
 	"github.com/bigboggy/vibespace/internal/hub"
 	"github.com/bigboggy/vibespace/internal/screens"
 	"github.com/bigboggy/vibespace/internal/screens/intro"
+	"github.com/bigboggy/vibespace/internal/screens/leaderboard"
 	"github.com/bigboggy/vibespace/internal/screens/lobby"
 	"github.com/bigboggy/vibespace/internal/screens/profile"
 	"github.com/bigboggy/vibespace/internal/store"
@@ -26,6 +27,10 @@ type App struct {
 	lobby   *lobby.Screen   // kept for Cleanup + navigation hooks
 	profile *profile.Screen // kept for navigation hooks (SetTarget)
 
+	board *leaderboard.Screen // kept for navigation hooks (ShowJoin)
+
+	data *store.Store // queried by the top-right leaderboard widget
+
 	width, height int
 }
 
@@ -41,16 +46,20 @@ type App struct {
 func New(styles *theme.Styles, fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service, data *store.Store) *App {
 	lob := lobby.New(styles, fallbackUser, fingerprint, ghLogin, h, authSvc, data)
 	prof := profile.New(styles, data)
+	board := leaderboard.New(styles, data)
 	return &App{
 		styles: styles,
 		screens: map[string]screens.Screen{
-			screens.IntroID:   intro.New(styles),
-			screens.LobbyID:   lob,
-			screens.ProfileID: prof,
+			screens.IntroID:       intro.New(styles),
+			screens.LobbyID:       lob,
+			screens.ProfileID:     prof,
+			screens.LeaderboardID: board,
 		},
 		current: screens.IntroID,
 		lobby:   lob,
 		profile: prof,
+		board:   board,
+		data:    data,
 	}
 }
 

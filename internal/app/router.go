@@ -38,6 +38,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, a.navigate(screens.ProfileID)
 
+	case screens.OpenLeaderboardJoinMsg:
+		// Flip the join modal on before navigating so it's already up on the
+		// first frame the user sees. Lobby uses this for /leaderboard-join.
+		if a.board != nil {
+			a.board.ShowJoin()
+		}
+		return a, a.navigate(screens.LeaderboardID)
+
 	case hub.Event:
 		// Hub broadcasts always go to the lobby — it's the screen that owns
 		// the subscription — regardless of which screen is currently active.

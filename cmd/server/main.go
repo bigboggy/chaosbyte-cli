@@ -95,6 +95,11 @@ func main() {
 		wish.WithMiddleware(
 			bm.Middleware(teaHandler(world, authSvc, data)),
 			activeterm.Middleware(),
+			// reportMiddleware sits outside activeterm so `ssh -T host report`
+			// (no PTY, command="report") gets handled before activeterm bounces
+			// it for lacking a terminal. Logging stays outermost so both the
+			// TUI and report sessions show up in the access log.
+			reportMiddleware(data, authSvc),
 			logging.Middleware(),
 		),
 	)
@@ -114,6 +119,15 @@ func main() {
 
 	<-done
 	log.Println("shutting down")
+
+	// Persist today's hot-tier token totals to SQLite before we exit so a
+	// graceful stop doesn't drop the in-memory portion of the leaderboard.
+	// Hot tier doesn't fsync on every write — the trade-off is fast
+	// per-minute uploads now, one SQLite write at shutdown / day rollover.
+	if err := data.FlushHot(); err != nil {
+		log.Printf("flush hot tier: %v", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := s.Shutdown(ctx); err != nil && !errors.Is(err, ssh.ErrServerClosed) {

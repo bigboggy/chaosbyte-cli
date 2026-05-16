@@ -14,14 +14,30 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
-// Store wraps a *sql.DB with typed helpers for each table.
+// sortLeaderboard ranks entries by total desc; ties break by login asc for a
+// deterministic order regardless of map iteration.
+func sortLeaderboard(entries []LeaderboardEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Total != entries[j].Total {
+			return entries[i].Total > entries[j].Total
+		}
+		return entries[i].Login < entries[j].Login
+	})
+}
+
+// Store wraps a *sql.DB with typed helpers for each table. The hot tier
+// (in-memory map for today's token_usage rows) batches the per-minute
+// upload burst into a single SQLite write at the UTC day rollover; see
+// hottier.go for the routing logic.
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	hot *hotStore
 }
 
 // Open opens (or creates) the SQLite database at path and runs migrations.
@@ -39,7 +55,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite is single-writer; cap connections to avoid spurious busy errors.
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, hot: newHotStore()}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -119,6 +135,18 @@ func (s *Store) migrate() error {
 			created_at    INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS guestbook_by_owner ON guestbook(profile_owner, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS token_usage (
+			gh_login    TEXT NOT NULL,
+			source      TEXT NOT NULL,
+			date        TEXT NOT NULL,
+			input_toks  INTEGER NOT NULL DEFAULT 0,
+			output_toks INTEGER NOT NULL DEFAULT 0,
+			cache_write INTEGER NOT NULL DEFAULT 0,
+			cache_read  INTEGER NOT NULL DEFAULT 0,
+			updated_at  INTEGER NOT NULL,
+			PRIMARY KEY (gh_login, source, date)
+		)`,
+		`CREATE INDEX IF NOT EXISTS token_usage_by_date ON token_usage(date)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -632,6 +660,201 @@ func (s *Store) SignGuestbook(owner, author, body string) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// ── Token usage (leaderboard) ───────────────────────────────────────────────
+
+// TokenSource is a stable id for the AI CLI the tokens were spent in. Stored
+// as the literal lowercase string in the `source` column so the value is
+// stable across migrations.
+type TokenSource string
+
+const (
+	SourceClaude   TokenSource = "claude"
+	SourceOpenCode TokenSource = "opencode"
+	SourceCodex    TokenSource = "codex"
+)
+
+// TokenUsage is one (user, source, day) bucket. Days are stored as
+// YYYY-MM-DD UTC text so a string PK is stable and easy to range-query.
+type TokenUsage struct {
+	Login       string
+	Source      TokenSource
+	Date        string // YYYY-MM-DD (UTC)
+	Input       int64
+	Output      int64
+	CacheWrite  int64
+	CacheRead   int64
+	UpdatedAt   time.Time
+}
+
+// Total returns the all-up token count summed across input/output/cache —
+// used as the single ranking number on the leaderboard.
+func (u TokenUsage) Total() int64 {
+	return u.Input + u.Output + u.CacheWrite + u.CacheRead
+}
+
+// RecordTokenUsage upserts one (login, source, date) bucket with absolute
+// totals. Today's bucket goes to the in-memory hot tier; older dates write
+// straight to SQLite. The hot tier coalesces the per-minute upload burst
+// into a single SQLite write at the UTC day rollover. See hottier.go.
+//
+// Callers should send the daily total, not deltas — re-uploading the same
+// (user, source, day) overwrites the prior value rather than accumulating.
+func (s *Store) RecordTokenUsage(u TokenUsage) error {
+	if u.Login == "" || u.Source == "" || u.Date == "" {
+		return errors.New("store: token usage missing login/source/date")
+	}
+	todayWritten, stale, oldDay := s.hot.upsert(u)
+	// Flush a rolled-over prior day to SQLite. Caller is unaware of the
+	// rollover — they just see RecordTokenUsage succeed.
+	for _, e := range stale {
+		if err := s.writeColdTokenUsage(e); err != nil {
+			return err
+		}
+	}
+	// Late/backfilled data for a past day persists directly.
+	for _, e := range oldDay {
+		if err := s.writeColdTokenUsage(e); err != nil {
+			return err
+		}
+	}
+	_ = todayWritten
+	return nil
+}
+
+// writeColdTokenUsage is the raw SQLite upsert. The hot tier calls it
+// during rollover; backfill writes (date < today) call it directly. Stays
+// idempotent on (login, source, date) so re-runs from the hot tier are
+// safe if FlushHot is invoked twice.
+func (s *Store) writeColdTokenUsage(u TokenUsage) error {
+	_, err := s.db.Exec(`
+		INSERT INTO token_usage (gh_login, source, date, input_toks, output_toks, cache_write, cache_read, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(gh_login, source, date) DO UPDATE SET
+			input_toks  = excluded.input_toks,
+			output_toks = excluded.output_toks,
+			cache_write = excluded.cache_write,
+			cache_read  = excluded.cache_read,
+			updated_at  = excluded.updated_at`,
+		u.Login, string(u.Source), u.Date,
+		u.Input, u.Output, u.CacheWrite, u.CacheRead,
+		time.Now().Unix())
+	return err
+}
+
+// FlushHot drains the hot tier into SQLite. Called by the server's SIGTERM
+// shutdown path so a graceful stop persists today's accumulated totals
+// before the process exits. Idempotent — running it twice in a row is a
+// no-op after the first call drains the map.
+func (s *Store) FlushHot() error {
+	if s == nil || s.hot == nil {
+		return nil
+	}
+	for _, e := range s.hot.drain() {
+		if err := s.writeColdTokenUsage(e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LeaderboardEntry is one user's aggregated totals for the queried window.
+// PerSource is broken out so the full leaderboard can show "claude / opencode
+// / codex" splits next to the headline total.
+type LeaderboardEntry struct {
+	Login     string
+	Total     int64
+	PerSource map[TokenSource]int64
+}
+
+// Leaderboard returns the top-`limit` users by total tokens since `since`
+// (inclusive, UTC day boundary). Pass a zero `since` to mean all-time.
+//
+// Reads merge the cold tier (SQLite, historical) with the hot tier
+// (in-memory, today). The hot snapshot is taken once per call so the read
+// is point-in-time consistent even while concurrent uploads update the
+// map.
+func (s *Store) Leaderboard(since time.Time, limit int) ([]LeaderboardEntry, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	sinceStr := ""
+	if !since.IsZero() {
+		sinceStr = since.UTC().Format("2006-01-02")
+	}
+
+	agg := map[string]*LeaderboardEntry{}
+
+	// Cold tier: SQLite. One row per (user, source) aggregated by SUM so
+	// per-day rows collapse before they hit Go.
+	var args []any
+	where := ""
+	if sinceStr != "" {
+		where = "WHERE date >= ?"
+		args = append(args, sinceStr)
+	}
+	q := fmt.Sprintf(`
+		SELECT gh_login, source,
+		       COALESCE(SUM(input_toks),  0),
+		       COALESCE(SUM(output_toks), 0),
+		       COALESCE(SUM(cache_write), 0),
+		       COALESCE(SUM(cache_read),  0)
+		FROM token_usage
+		%s
+		GROUP BY gh_login, source`, where)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var login, src string
+		var in, out, cw, cr int64
+		if err := rows.Scan(&login, &src, &in, &out, &cw, &cr); err != nil {
+			return nil, err
+		}
+		addLeaderboardRow(agg, login, TokenSource(src), in+out+cw+cr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Hot tier: today's in-memory buckets. Skip if `since` rules out today,
+	// otherwise fold them into the same aggregate as the SQLite rows.
+	if sinceStr == "" || todayUTC() >= sinceStr {
+		for _, h := range s.hot.snapshot() {
+			if sinceStr != "" && h.Date < sinceStr {
+				continue
+			}
+			addLeaderboardRow(agg, h.Login, h.Source, h.Total())
+		}
+	}
+
+	out := make([]LeaderboardEntry, 0, len(agg))
+	for _, e := range agg {
+		out = append(out, *e)
+	}
+	// Stable order: total desc, then login asc for deterministic ties.
+	sortLeaderboard(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// addLeaderboardRow merges one (login, source, total) into the aggregate
+// map shared by the cold-tier scan and the hot-tier merge. Reused so both
+// paths follow the exact same accumulation rules.
+func addLeaderboardRow(agg map[string]*LeaderboardEntry, login string, src TokenSource, total int64) {
+	e, ok := agg[login]
+	if !ok {
+		e = &LeaderboardEntry{Login: login, PerSource: map[TokenSource]int64{}}
+		agg[login] = e
+	}
+	e.Total += total
+	e.PerSource[src] += total
 }
 
 // Guestbook returns the most-recent up-to-limit entries on owner's profile.

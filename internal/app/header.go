@@ -53,6 +53,11 @@ func tooSmall(st *theme.Styles, w, h int) string {
 }
 
 // renderFrame assembles header + body + footer for the current frame.
+//
+// On non-intro screens the leaderboard widget is overlaid on the top-right
+// of the body. We accept that the body's top-right corner gets clipped — chat
+// scrollback pushes old lines up off the visible window anyway, and profile
+// cards stay centered with horizontal slack at common terminal widths.
 func (a *App) renderFrame() string {
 	header := a.renderHeader()
 	footer := a.renderFooter()
@@ -67,5 +72,6 @@ func (a *App) renderFrame() string {
 	}
 
 	body := a.activeScreen().View(a.width, bodyH)
+	body = overlayTopRight(body, a.renderLeaderboardWidget(), a.width)
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }

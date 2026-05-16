@@ -74,6 +74,18 @@ func OpenProfile(target, viewer string) tea.Cmd {
 	return func() tea.Msg { return OpenProfileMsg{Target: target, Viewer: viewer} }
 }
 
+// OpenLeaderboardJoinMsg asks the app to open the leaderboard screen with
+// the "how to join" install dialog already visible. The router toggles the
+// dialog on the leaderboard screen before activating it so it appears on
+// the first frame instead of after an extra key press.
+type OpenLeaderboardJoinMsg struct{}
+
+// OpenLeaderboardJoin returns a tea.Cmd that opens the leaderboard with the
+// join modal already up. Emitted by the lobby's `/leaderboard-join` command.
+func OpenLeaderboardJoin() tea.Cmd {
+	return func() tea.Msg { return OpenLeaderboardJoinMsg{} }
+}
+
 // Quit returns a tea.Cmd that quits the app.
 func Quit() tea.Cmd {
 	return tea.Quit
@@ -81,7 +93,8 @@ func Quit() tea.Cmd {
 
 // Screen ids — used as keys in the app's screen map and as Navigate targets.
 const (
-	IntroID   = "intro"
-	LobbyID   = "lobby"
-	ProfileID = "profile"
+	IntroID       = "intro"
+	LobbyID       = "lobby"
+	ProfileID     = "profile"
+	LeaderboardID = "leaderboard"
 )

@@ -22,15 +22,23 @@ Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
 One-liner (Linux / macOS):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace/main/scripts/install.sh | bash
 ```
 
-Installs the **vibespace** binary to `~/.local/bin/vibespace`.
+Installs the **vibespace** binary to `~/.local/bin/vibespace` and sets up a
+per-minute background tracker that uploads your Claude Code / OpenCode /
+Codex token usage to the leaderboard. The scheduler used depends on your
+platform: systemd `--user` timer on Linux, launchd LaunchAgent on macOS,
+crontab as a fallback.
 
-Uninstall:
+Skip the scheduler with `VIBESPACE_NO_SCHEDULE=1`. To remove the scheduler:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bigboggy/vibespace-cli/main/install.sh | bash -s -- --uninstall
+# systemd:  systemctl --user disable --now vibespace-report.timer
+#           rm ~/.config/systemd/user/vibespace-report.*
+# launchd:  launchctl unload ~/Library/LaunchAgents/sh.vibespace.report.plist
+#           rm ~/Library/LaunchAgents/sh.vibespace.report.plist
+# cron:     crontab -e   # delete the line tagged "# vibespace-report"
 ```
 
 ---

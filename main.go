@@ -13,6 +13,7 @@ import (
 	"github.com/bigboggy/vibespace/internal/auth"
 	"github.com/bigboggy/vibespace/internal/hub"
 	"github.com/bigboggy/vibespace/internal/identity"
+	"github.com/bigboggy/vibespace/internal/reportcli"
 	"github.com/bigboggy/vibespace/internal/store"
 	"github.com/bigboggy/vibespace/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +21,19 @@ import (
 )
 
 func main() {
+	// Subcommand dispatch. Only `report` is a non-TUI flow today; everything
+	// else falls through to the local lobby below. Lives in its own package
+	// so `go run main.go` works as well as `go run .`.
+	if len(os.Args) > 1 && os.Args[1] == "report" {
+		reportcli.Run(os.Args[2:])
+		return
+	}
+
+	// Fire-and-forget token usage upload. Throttled to once per minute via
+	// a marker file in the config dir, so back-to-back TUI launches don't
+	// double-fire. Runs detached — no impact on TUI startup.
+	reportcli.KickBackground(localConfigDir())
+
 	h := hub.New()
 	// Local-mode SQLite lives under the user's config dir so profiles persist
 	// across runs without polluting the working directory.
@@ -45,9 +59,12 @@ func main() {
 	}
 
 	styles := theme.New(lipgloss.DefaultRenderer(), theme.Default())
+	// No mouse capture — the app doesn't consume mouse events, and capturing
+	// them blocks the terminal's native click-and-drag text selection (which
+	// users need to copy the install one-liner out of the join dialog).
 	p := tea.NewProgram(
 		app.New(styles, localUser(), fingerprint, ghLogin, h, authSvc, data),
-		tea.WithAltScreen(), tea.WithMouseCellMotion(),
+		tea.WithAltScreen(),
 	)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "vibespace: %v\n", err)
@@ -55,13 +72,22 @@ func main() {
 	}
 }
 
-func localDBPath() string {
-	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
-		root := dir + "/vibespace"
-		_ = os.MkdirAll(root, 0o700)
-		return root + "/vibespace.db"
+// localConfigDir returns the per-user directory under which all
+// vibespace-owned files live (SQLite store, identity map, auto-report
+// marker). Creates the dir as a side effect so callers don't have to.
+// Falls back to "." when the OS doesn't expose a config dir.
+func localConfigDir() string {
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
+		return "."
 	}
-	return "./vibespace.db"
+	root := dir + "/vibespace"
+	_ = os.MkdirAll(root, 0o700)
+	return root
+}
+
+func localDBPath() string {
+	return localConfigDir() + "/vibespace.db"
 }
 
 // localAuth wires the /auth flow in local mode when VIBESPACE_GH_CLIENT_ID is
@@ -88,10 +114,7 @@ func localAuth(data *store.Store) (*auth.Service, string) {
 }
 
 func localIdentityPath() string {
-	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
-		return dir + "/vibespace/identities.json"
-	}
-	return "./identities.json"
+	return localConfigDir() + "/identities.json"
 }
 
 // localFingerprint is the stable key local-mode sessions use in the identity

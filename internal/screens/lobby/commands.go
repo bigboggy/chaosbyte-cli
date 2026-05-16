@@ -32,6 +32,8 @@ var builtins = []command{
 	{"/friends", "show your friends + pending requests"},
 	{"/post", "write a post on your profile"},
 	{"/sign", "sign a friend's guestbook"},
+	{"/leaderboard", "open the token-usage leaderboard"},
+	{"/leaderboard-join", "how to add yourself to the leaderboard"},
 	{"/theme", "switch color theme"},
 	{"/auth", "link your GitHub account"},
 	{"/logout", "unlink your GitHub account"},
@@ -49,6 +51,11 @@ var aliases = map[string]string{
 	"/?":        "/help",
 	"/signout":  "/logout",
 	"/p":        "/profile",
+	"/lb":       "/leaderboard",
+	"/board":    "/leaderboard",
+	"/top":      "/leaderboard",
+	"/lb-join":  "/leaderboard-join",
+	"/join-lb":  "/leaderboard-join",
 }
 
 // allowedWhenGated lists commands that work even when the session hasn't
@@ -57,12 +64,14 @@ var aliases = map[string]string{
 // /profile is gated-allowed so unauthenticated users can browse profiles;
 // the screen itself nudges them to /auth before they can act on what they see.
 var allowedWhenGated = map[string]bool{
-	"/auth":    true,
-	"/help":    true,
-	"/quit":    true,
-	"/clear":   true,
-	"/theme":   true,
-	"/profile": true,
+	"/auth":             true,
+	"/help":             true,
+	"/quit":             true,
+	"/clear":            true,
+	"/theme":            true,
+	"/profile":          true,
+	"/leaderboard":      true,
+	"/leaderboard-join": true,
 }
 
 func canonicalName(name string) string {
@@ -141,6 +150,10 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s.cmdPost(args)
 	case "/sign":
 		return s.cmdSign(args)
+	case "/leaderboard":
+		return s, screens.Navigate(screens.LeaderboardID)
+	case "/leaderboard-join":
+		return s, screens.OpenLeaderboardJoin()
 	}
 	s.postSystem(fmt.Sprintf("unknown command %q — try /help", parts[0]))
 	return s, nil
