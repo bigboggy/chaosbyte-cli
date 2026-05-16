@@ -10,6 +10,7 @@
 //	VIBESPACE_HOSTKEY        host key path, default ".ssh/id_ed25519" (auto-generated on first run)
 //	VIBESPACE_GH_CLIENT_ID   GitHub OAuth app client id (enables /auth github)
 //	VIBESPACE_IDENTITY_PATH  path to identity store JSON, default "./identities.json"
+//	VIBESPACE_DATA_PATH      path to profile/posts/friends SQLite DB, default "./vibespace.db"
 //
 // Run on a non-22 port unless you've moved system OpenSSH. Front it with a
 // tunnel or VPS proxy before pointing public DNS at your home machine.
@@ -30,6 +31,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/auth"
 	"github.com/bchayka/gitstatus/internal/hub"
 	"github.com/bchayka/gitstatus/internal/identity"
+	"github.com/bchayka/gitstatus/internal/store"
 	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/ssh"
@@ -45,16 +47,26 @@ func main() {
 	hostKey := envOr("VIBESPACE_HOSTKEY", ".ssh/id_ed25519")
 	ghClientID := os.Getenv("VIBESPACE_GH_CLIENT_ID")
 	identityPath := envOr("VIBESPACE_IDENTITY_PATH", "./identities.json")
+	dataPath := envOr("VIBESPACE_DATA_PATH", "./vibespace.db")
 
 	world := hub.New()
 
+	// The profile/posts/friends SQLite store is always opened — profiles work
+	// without auth, just without cached GitHub data.
+	data, err := store.Open(dataPath)
+	if err != nil {
+		log.Fatalf("data store: %v", err)
+	}
+	defer data.Close()
+	log.Printf("data store at %s", dataPath)
+
 	var authSvc *auth.Service
 	if ghClientID != "" {
-		store, err := identity.Open(identityPath)
+		idStore, err := identity.Open(identityPath)
 		if err != nil {
 			log.Fatalf("identity store: %v", err)
 		}
-		authSvc = auth.New(ghClientID, store)
+		authSvc = auth.New(ghClientID, idStore, data)
 		log.Printf("github auth enabled, identity store at %s", identityPath)
 	} else {
 		log.Printf("github auth disabled (set VIBESPACE_GH_CLIENT_ID to enable)")
@@ -81,7 +93,7 @@ func main() {
 		}),
 
 		wish.WithMiddleware(
-			bm.Middleware(teaHandler(world, authSvc)),
+			bm.Middleware(teaHandler(world, authSvc, data)),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),
@@ -110,7 +122,7 @@ func main() {
 }
 
 // teaHandler returns a wish bubbletea handler that builds a per-session app.
-func teaHandler(world *hub.Hub, authSvc *auth.Service) bm.Handler {
+func teaHandler(world *hub.Hub, authSvc *auth.Service, data *store.Store) bm.Handler {
 	return func(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
 		_, _, hasPty := sess.Pty()
 		if !hasPty {
@@ -133,7 +145,7 @@ func teaHandler(world *hub.Hub, authSvc *auth.Service) bm.Handler {
 		// can't render them.
 		styles := theme.New(bm.MakeRenderer(sess), theme.Default())
 
-		a := app.New(styles, fallback, fingerprint, ghLogin, world, authSvc)
+		a := app.New(styles, fallback, fingerprint, ghLogin, world, authSvc, data)
 
 		// Cleanup on session end: SSH closes ctx -> unsubscribe + free resources.
 		go func() {

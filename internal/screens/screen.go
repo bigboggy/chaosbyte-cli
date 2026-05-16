@@ -60,6 +60,20 @@ func Navigate(target string) tea.Cmd {
 	return func() tea.Msg { return NavigateMsg{Target: target} }
 }
 
+// OpenProfileMsg asks the app to switch to the profile screen with the given
+// target login. Viewer is the currently-authenticated user (may be empty for
+// guests). The app router uses this to populate the profile screen's state
+// before activating it.
+type OpenProfileMsg struct {
+	Target string // gh_login of the profile to view
+	Viewer string // gh_login of the current user, "" if unauthenticated
+}
+
+// OpenProfile returns a tea.Cmd that opens the profile screen for target.
+func OpenProfile(target, viewer string) tea.Cmd {
+	return func() tea.Msg { return OpenProfileMsg{Target: target, Viewer: viewer} }
+}
+
 // Quit returns a tea.Cmd that quits the app.
 func Quit() tea.Cmd {
 	return tea.Quit
@@ -67,6 +81,7 @@ func Quit() tea.Cmd {
 
 // Screen ids — used as keys in the app's screen map and as Navigate targets.
 const (
-	IntroID = "intro"
-	LobbyID = "lobby"
+	IntroID   = "intro"
+	LobbyID   = "lobby"
+	ProfileID = "profile"
 )

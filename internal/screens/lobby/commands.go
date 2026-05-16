@@ -24,6 +24,14 @@ var builtins = []command{
 	{"/list", "list channels"},
 	{"/who", "list users in this channel"},
 	{"/me", "third-person action"},
+	{"/profile", "view a profile (no arg = your own)"},
+	{"/friend", "send a friend request"},
+	{"/accept", "accept an incoming friend request"},
+	{"/reject", "reject an incoming friend request"},
+	{"/unfriend", "remove a friend"},
+	{"/friends", "show your friends + pending requests"},
+	{"/post", "write a post on your profile"},
+	{"/sign", "sign a friend's guestbook"},
 	{"/theme", "switch color theme"},
 	{"/auth", "link your GitHub account"},
 	{"/logout", "unlink your GitHub account"},
@@ -40,16 +48,21 @@ var aliases = map[string]string{
 	"/users":    "/who",
 	"/?":        "/help",
 	"/signout":  "/logout",
+	"/p":        "/profile",
 }
 
 // allowedWhenGated lists commands that work even when the session hasn't
 // authenticated yet. Everything else returns a "type /auth" hint.
+//
+// /profile is gated-allowed so unauthenticated users can browse profiles;
+// the screen itself nudges them to /auth before they can act on what they see.
 var allowedWhenGated = map[string]bool{
-	"/auth":  true,
-	"/help":  true,
-	"/quit":  true,
-	"/clear": true,
-	"/theme": true,
+	"/auth":    true,
+	"/help":    true,
+	"/quit":    true,
+	"/clear":   true,
+	"/theme":   true,
+	"/profile": true,
 }
 
 func canonicalName(name string) string {
@@ -112,6 +125,22 @@ func (s *Screen) handleSlash(text string) (*Screen, tea.Cmd) {
 		return s.cmdLogout()
 	case "/theme":
 		return s.cmdTheme(args)
+	case "/profile":
+		return s.cmdProfile(args)
+	case "/friend":
+		return s.cmdFriend(args)
+	case "/accept":
+		return s.cmdAccept(args)
+	case "/reject":
+		return s.cmdReject(args)
+	case "/unfriend":
+		return s.cmdUnfriend(args)
+	case "/friends":
+		return s.cmdFriends()
+	case "/post":
+		return s.cmdPost(args)
+	case "/sign":
+		return s.cmdSign(args)
 	}
 	s.postSystem(fmt.Sprintf("unknown command %q — try /help", parts[0]))
 	return s, nil

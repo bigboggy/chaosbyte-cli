@@ -11,6 +11,7 @@ import (
 
 	"github.com/bchayka/gitstatus/internal/app"
 	"github.com/bchayka/gitstatus/internal/hub"
+	"github.com/bchayka/gitstatus/internal/store"
 	"github.com/bchayka/gitstatus/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,12 +19,34 @@ import (
 
 func main() {
 	h := hub.New()
+	// Local-mode SQLite lives under the user's config dir so profiles persist
+	// across runs without polluting the working directory.
+	dbPath := localDBPath()
+	data, err := store.Open(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vibespace: store: %v\n", err)
+		os.Exit(1)
+	}
+	defer data.Close()
+
 	styles := theme.New(lipgloss.DefaultRenderer(), theme.Default())
-	p := tea.NewProgram(app.New(styles, localUser(), "", "", h, nil), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(
+		app.New(styles, localUser(), "", "", h, nil, data),
+		tea.WithAltScreen(), tea.WithMouseCellMotion(),
+	)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "vibespace: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func localDBPath() string {
+	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
+		root := dir + "/vibespace"
+		_ = os.MkdirAll(root, 0o700)
+		return root + "/vibespace.db"
+	}
+	return "./vibespace.db"
 }
 
 func localUser() string {

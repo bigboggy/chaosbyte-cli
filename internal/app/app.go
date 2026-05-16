@@ -10,6 +10,8 @@ import (
 	"github.com/bchayka/gitstatus/internal/screens"
 	"github.com/bchayka/gitstatus/internal/screens/intro"
 	"github.com/bchayka/gitstatus/internal/screens/lobby"
+	"github.com/bchayka/gitstatus/internal/screens/profile"
+	"github.com/bchayka/gitstatus/internal/store"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,7 +23,8 @@ type App struct {
 
 	screens map[string]screens.Screen
 	current string
-	lobby   *lobby.Screen // kept for Cleanup
+	lobby   *lobby.Screen   // kept for Cleanup + navigation hooks
+	profile *profile.Screen // kept for navigation hooks (SetTarget)
 
 	width, height int
 }
@@ -32,18 +35,22 @@ type App struct {
 // SSH-derived nick used when the user isn't (yet) authenticated; fingerprint
 // is the SSH pubkey fingerprint (may be empty); ghLogin is a pre-existing
 // GitHub link from the identity store (may be empty); h is the shared chat
-// backend; authSvc may be nil to disable /auth. The intro screen is the
-// initial active screen; it emits Navigate(lobby) when its animation ends.
-func New(styles *theme.Styles, fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service) *App {
-	lob := lobby.New(styles, fallbackUser, fingerprint, ghLogin, h, authSvc)
+// backend; authSvc may be nil to disable /auth; data is the profile/posts
+// store (required). The intro screen is the initial active screen; it emits
+// Navigate(lobby) when its animation ends.
+func New(styles *theme.Styles, fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service, data *store.Store) *App {
+	lob := lobby.New(styles, fallbackUser, fingerprint, ghLogin, h, authSvc, data)
+	prof := profile.New(styles, data)
 	return &App{
 		styles: styles,
 		screens: map[string]screens.Screen{
-			screens.IntroID: intro.New(styles),
-			screens.LobbyID: lob,
+			screens.IntroID:   intro.New(styles),
+			screens.LobbyID:   lob,
+			screens.ProfileID: prof,
 		},
 		current: screens.IntroID,
 		lobby:   lob,
+		profile: prof,
 	}
 }
 

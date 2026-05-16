@@ -16,6 +16,7 @@ import (
 	"github.com/bchayka/gitstatus/internal/auth"
 	"github.com/bchayka/gitstatus/internal/hub"
 	"github.com/bchayka/gitstatus/internal/screens"
+	"github.com/bchayka/gitstatus/internal/store"
 	"github.com/bchayka/gitstatus/internal/theme"
 	"github.com/bchayka/gitstatus/internal/ui"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -41,6 +42,8 @@ type Screen struct {
 	hub    *hub.Hub
 	subID  uint64
 	events <-chan hub.Event
+
+	data *store.Store // profile/posts/friends/guestbook; nil disables those commands
 
 	auth        *auth.Service // nil disables /auth + the gating
 	fingerprint string        // SSH pubkey fingerprint; "" if no key
@@ -68,9 +71,10 @@ type Screen struct {
 // New constructs a lobby bound to hub. fallbackUser is the SSH-derived nick
 // to use when not authenticated. fingerprint is the SSH pubkey fingerprint
 // (may be ""). ghLogin is a pre-existing GitHub link from the identity store
-// (may be ""). authSvc may be nil to disable /auth entirely. The session
-// subscribes to the hub immediately; call Cleanup when the session ends.
-func New(styles *theme.Styles, fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service) *Screen {
+// (may be ""). authSvc may be nil to disable /auth entirely. data is the
+// SQLite store for profiles/posts/friends/guestbook. The session subscribes
+// to the hub immediately; call Cleanup when the session ends.
+func New(styles *theme.Styles, fallbackUser, fingerprint, ghLogin string, h *hub.Hub, authSvc *auth.Service, data *store.Store) *Screen {
 	id, events := h.Subscribe()
 	h.SetViewing(id, "#lobby")
 	me := fallbackUser
@@ -82,6 +86,7 @@ func New(styles *theme.Styles, fallbackUser, fingerprint, ghLogin string, h *hub
 		hub:          h,
 		subID:        id,
 		events:       events,
+		data:         data,
 		auth:         authSvc,
 		fingerprint:  fingerprint,
 		fallbackUser: fallbackUser,

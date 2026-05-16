@@ -30,6 +30,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.NavigateMsg:
 		return a, a.navigate(m.Target)
 
+	case screens.OpenProfileMsg:
+		// Populate the profile screen's target/viewer state before switching
+		// to it, so the screen renders the right user on its first View call.
+		if a.profile != nil {
+			a.profile.SetTarget(m.Target, m.Viewer)
+		}
+		return a, a.navigate(screens.ProfileID)
+
 	case hub.Event:
 		// Hub broadcasts always go to the lobby — it's the screen that owns
 		// the subscription — regardless of which screen is currently active.
