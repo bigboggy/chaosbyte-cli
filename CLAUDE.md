@@ -84,8 +84,11 @@ Defined in `internal/screens/lobby/commands.go`:
 | `VIBESPACE_HOSTKEY` | `.ssh/id_ed25519` | SSH host key path (auto-generated) |
 | `VIBESPACE_GH_CLIENT_ID` | unset | enables `/auth`; when set, lobby is gated until auth |
 | `VIBESPACE_IDENTITY_PATH` | `./identities.json` | fingerprint → GH login store |
+| `VIBESPACE_DATA_PATH` | `./vibespace.db` | SQLite store for profiles/posts/friends/guestbook |
 
 Without `VIBESPACE_GH_CLIENT_ID`, the server runs but `/auth` is disabled and no gating is applied.
+
+**Local mode** (`go run .`) reads `VIBESPACE_GH_CLIENT_ID` as well — set it to enable `/auth` against the same device flow. The local SQLite + identity store live under `$XDG_CONFIG_HOME/vibespace/` (macOS: `~/Library/Application Support/vibespace/`). There's no SSH layer locally, so the "fingerprint" stored with the GitHub link is synthesized from the OS username (`local:<user>`).
 
 ## Conventions
 

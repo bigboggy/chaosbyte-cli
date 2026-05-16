@@ -58,7 +58,7 @@ Type `/` and Tab to cycle suggestions.
 /list          list channels
 /who           list users
 /me <action>   third-person action
-/auth          link your GitHub account (server-side only)
+/auth          link your GitHub account
 /logout        unlink your GitHub account
 /clear         clear scrollback
 /help          show all commands
@@ -69,17 +69,37 @@ Aliases: `/exit` / `/bye` → `/quit`, `/part` → `/leave`, `/channels` → `/l
 `/users` → `/who`, `/?` → `/help`.
 
 `/auth` runs GitHub's [device authorization flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow):
-the server shows you a short code, you paste it at https://github.com/login/device,
+vibespace shows you a short code, you paste it at https://github.com/login/device,
 and on success your SSH public key is linked to your GitHub login. Future
 connections from the same key pick up the GitHub handle automatically. Only
 the (fingerprint, login) pair is stored — no access tokens are persisted.
 
-When a server has GitHub auth configured (`VIBESPACE_GH_CLIENT_ID` set), the
-lobby is **read-only until you authenticate**: you can see existing messages
-but can't send, join channels, or run other commands. The input placeholder
-nudges you to `/auth`. After you authenticate, the slash palette swaps `/auth`
-out for `/logout`, which unlinks your key from the GitHub identity (next
-connection starts as a guest again).
+When GitHub auth is configured (`VIBESPACE_GH_CLIENT_ID` set), the lobby is
+**read-only until you authenticate**: you can see existing messages but can't
+send, join channels, or run other commands. The input placeholder nudges you
+to `/auth`. After you authenticate, the slash palette swaps `/auth` out for
+`/logout`, which unlinks your key from the GitHub identity (next connection
+starts as a guest again).
+
+### Enabling `/auth` locally
+
+`/auth` works in local mode too — set `VIBESPACE_GH_CLIENT_ID` to your OAuth
+app's client id and run:
+
+```bash
+export VIBESPACE_GH_CLIENT_ID=Iv1.xxxxxxxxxxxxxxxx
+go run .
+```
+
+Without that env var, `/auth` reports it isn't configured and the rest of the
+app (chat, profiles, posts, friends) runs against the local SQLite DB without
+any GitHub link. The identity store lives next to the DB under
+`$XDG_CONFIG_HOME/vibespace/` (macOS: `~/Library/Application Support/vibespace/`).
+
+Local mode has no SSH layer, so the "fingerprint" stored alongside your
+GitHub login is synthesized from your OS username (`local:<username>`). It's
+stable across runs on the same machine but not portable between machines —
+log in on a different laptop and you'll re-run `/auth`.
 
 ---
 
@@ -115,7 +135,9 @@ vibespace/
 
 For server mode, `cmd/server/main.go` wires a wish SSH server in front of the
 same lobby. Env vars: `VIBESPACE_ADDR`, `VIBESPACE_HOSTKEY`,
-`VIBESPACE_MAX_SESS`, `VIBESPACE_GH_CLIENT_ID`, `VIBESPACE_IDENTITY_PATH`.
+`VIBESPACE_GH_CLIENT_ID`, `VIBESPACE_IDENTITY_PATH`, `VIBESPACE_DATA_PATH`.
+Local mode also honors `VIBESPACE_GH_CLIENT_ID` (see above); other env vars
+are server-only.
 
 Each screen implements `screens.Screen`. Navigation flows through
 `screens.Navigate(target)` messages caught by `internal/app/router.go`.
