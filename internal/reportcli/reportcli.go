@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -114,7 +115,19 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
-	sshArgs := []string{"-T"}
+	// Pin to pubkey auth. The server identifies uploaders by SSH pubkey
+	// fingerprint — it has no concept of passwords. Without these flags an
+	// ssh client that can't offer a pubkey falls through to keyboard-
+	// interactive / password prompts that the server can't honor, leaving
+	// the user staring at a confusing "Password:" prompt. With them, the
+	// failure is a clean "Permission denied (publickey)" we can catch and
+	// translate into actionable advice below.
+	sshArgs := []string{
+		"-T",
+		"-o", "PreferredAuthentications=publickey",
+		"-o", "PasswordAuthentication=no",
+		"-o", "KbdInteractiveAuthentication=no",
+	}
 	if port != "" {
 		sshArgs = append(sshArgs, "-p", port)
 	}
@@ -136,15 +149,51 @@ func Run(args []string) {
 	cmd := exec.Command("ssh", sshArgs...)
 	cmd.Stdin = bytes.NewReader(payload)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Capture ssh's stderr so we can recognise "Permission denied (publickey)"
+	// and append a one-line fix-it suggestion. The original stderr text is
+	// always passed through so the user still sees the underlying ssh error.
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	if *verbose {
 		fmt.Fprintf(os.Stderr, "uploading %d entries to %s ...\n", len(entries), addr)
 	}
 	if err := cmd.Run(); err != nil {
+		explainSSHFailure(stderrBuf.String(), addr)
 		if ee, ok := err.(*exec.ExitError); ok {
 			os.Exit(ee.ExitCode())
 		}
 		os.Exit(1)
+	}
+}
+
+// explainSSHFailure converts the most common ssh failure modes into a
+// concrete next step. Best-effort — when we don't recognise the message we
+// stay quiet rather than guessing at the cause.
+func explainSSHFailure(stderr, server string) {
+	switch {
+	case strings.Contains(stderr, "Permission denied (publickey)"),
+		strings.Contains(stderr, "No supported authentication methods"):
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "vibespace report: pubkey auth failed. Most likely:")
+		fmt.Fprintln(os.Stderr, "  • you have no SSH key yet — generate one:")
+		fmt.Fprintln(os.Stderr, "        ssh-keygen -t ed25519")
+		fmt.Fprintln(os.Stderr, "  • or your key isn't linked to a GitHub login on the server.")
+		fmt.Fprintln(os.Stderr, "    Open an interactive session and run /auth in the lobby:")
+		host := server
+		port := ""
+		if i := strings.LastIndex(server, ":"); i >= 0 {
+			host = server[:i]
+			port = server[i+1:]
+		}
+		if port != "" {
+			fmt.Fprintf(os.Stderr, "        ssh -p %s %s\n", port, host)
+		} else {
+			fmt.Fprintf(os.Stderr, "        ssh %s\n", host)
+		}
+	case strings.Contains(stderr, "Could not resolve hostname"),
+		strings.Contains(stderr, "Name or service not known"):
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintf(os.Stderr, "vibespace report: can't reach %s — check DNS or set --server\n", server)
 	}
 }
 
