@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bchayka/gitstatus/internal/ui"
+	"github.com/bigboggy/vibespace/internal/ui"
 )
 
 // Event signals "something changed in the hub" to subscribers. The kind/name

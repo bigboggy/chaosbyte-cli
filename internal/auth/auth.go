@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bchayka/gitstatus/internal/github"
-	"github.com/bchayka/gitstatus/internal/identity"
-	"github.com/bchayka/gitstatus/internal/store"
+	"github.com/bigboggy/vibespace/internal/github"
+	"github.com/bigboggy/vibespace/internal/identity"
+	"github.com/bigboggy/vibespace/internal/store"
 )
 
 // Service is the facade the lobby talks to.

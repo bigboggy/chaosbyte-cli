@@ -9,8 +9,8 @@ package intro
 import (
 	"time"
 
-	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/bigboggy/vibespace/internal/screens"
+	"github.com/bigboggy/vibespace/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

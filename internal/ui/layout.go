@@ -6,7 +6,7 @@ package ui
 import (
 	"strings"
 
-	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/bigboggy/vibespace/internal/theme"
 )
 
 const (

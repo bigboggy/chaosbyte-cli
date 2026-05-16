@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bchayka/gitstatus/internal/ui"
+	"github.com/bigboggy/vibespace/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

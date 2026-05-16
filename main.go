@@ -9,10 +9,10 @@ import (
 	"os"
 	"os/user"
 
-	"github.com/bchayka/gitstatus/internal/app"
-	"github.com/bchayka/gitstatus/internal/hub"
-	"github.com/bchayka/gitstatus/internal/store"
-	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/bigboggy/vibespace/internal/app"
+	"github.com/bigboggy/vibespace/internal/hub"
+	"github.com/bigboggy/vibespace/internal/store"
+	"github.com/bigboggy/vibespace/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

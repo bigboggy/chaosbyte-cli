@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/bchayka/gitstatus/internal/hub"
-	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/screens/lobby"
+	"github.com/bigboggy/vibespace/internal/hub"
+	"github.com/bigboggy/vibespace/internal/screens"
+	"github.com/bigboggy/vibespace/internal/screens/lobby"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

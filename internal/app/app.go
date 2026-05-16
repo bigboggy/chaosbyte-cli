@@ -5,15 +5,15 @@
 package app
 
 import (
-	"github.com/bchayka/gitstatus/internal/auth"
-	"github.com/bchayka/gitstatus/internal/hub"
-	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/screens/intro"
-	"github.com/bchayka/gitstatus/internal/screens/lobby"
-	"github.com/bchayka/gitstatus/internal/screens/profile"
-	"github.com/bchayka/gitstatus/internal/store"
-	"github.com/bchayka/gitstatus/internal/theme"
-	"github.com/bchayka/gitstatus/internal/ui"
+	"github.com/bigboggy/vibespace/internal/auth"
+	"github.com/bigboggy/vibespace/internal/hub"
+	"github.com/bigboggy/vibespace/internal/screens"
+	"github.com/bigboggy/vibespace/internal/screens/intro"
+	"github.com/bigboggy/vibespace/internal/screens/lobby"
+	"github.com/bigboggy/vibespace/internal/screens/profile"
+	"github.com/bigboggy/vibespace/internal/store"
+	"github.com/bigboggy/vibespace/internal/theme"
+	"github.com/bigboggy/vibespace/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

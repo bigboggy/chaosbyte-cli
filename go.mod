@@ -1,4 +1,4 @@
-module github.com/bchayka/gitstatus
+module github.com/bigboggy/vibespace
 
 go 1.25.0
 

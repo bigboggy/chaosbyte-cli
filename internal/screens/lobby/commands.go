@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bchayka/gitstatus/internal/screens"
-	"github.com/bchayka/gitstatus/internal/theme"
-	"github.com/bchayka/gitstatus/internal/ui"
+	"github.com/bigboggy/vibespace/internal/screens"
+	"github.com/bigboggy/vibespace/internal/theme"
+	"github.com/bigboggy/vibespace/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

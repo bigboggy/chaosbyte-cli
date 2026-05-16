@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/bigboggy/vibespace/internal/theme"
 )
 
 // palettePageSize caps how many command rows are visible at once. The selection

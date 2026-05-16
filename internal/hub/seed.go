@@ -3,7 +3,7 @@ package hub
 import (
 	"time"
 
-	"github.com/bchayka/gitstatus/internal/ui"
+	"github.com/bigboggy/vibespace/internal/ui"
 )
 
 // seed returns the initial set of channels. The lobby is always index 0 —

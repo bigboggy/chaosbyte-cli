@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bchayka/gitstatus/internal/theme"
+	"github.com/bigboggy/vibespace/internal/theme"
 	"github.com/charmbracelet/lipgloss"
 )
 
