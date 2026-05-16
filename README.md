@@ -4,13 +4,14 @@
 ██║   ██║ ██║ ██████╔╝ █████╗   ███████╗ ██████╔╝ ███████║ ██║      █████╗
 ╚██╗ ██╔╝ ██║ ██╔══██╗ ██╔══╝   ╚════██║ ██╔═══╝  ██╔══██║ ██║      ██╔══╝
  ╚████╔╝  ██║ ██████╔╝ ███████╗ ███████║ ██║      ██║  ██║ ╚██████╗ ███████╗
-  ╚═══╝   ╚═╝ ╚═════╝  ╚══════╝ ╚══════╝ ╚═╝      ╚═╝  ╚═╝  ╚═════╝ ╚══════╝
+  ╚═══╝   ╚═╝ ╚═════╝  ╚══════╝ ╚══════╝ ╚═╝      ╚═╝  ╚═════╝ ╚══════╝
 ```
 
 > a 90s-style chat lobby for devs and vibe coders, in your terminal.
 
 **vibespace** is an IRC-style TUI chat: channels, slash commands, autocomplete,
-message history.
+message history — plus profiles, friends, posts, guestbook, token leaderboard,
+and theme switching.
 
 Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and
 [lipgloss](https://github.com/charmbracelet/lipgloss).
@@ -60,17 +61,55 @@ character, then drops you in `#lobby`. Press any key to skip.
 
 Type `/` and Tab to cycle suggestions.
 
+### Chat
+
 ```
 /join #name    join or switch channel
 /leave         return to #lobby
 /list          list channels
-/who           list users
+/who           list users in this channel
 /me <action>   third-person action
-/auth          link your GitHub account
-/logout        unlink your GitHub account
 /clear         clear scrollback
-/help          show all commands
 /quit          exit vibespace
+```
+
+### Social
+
+```
+/profile       view a profile (no arg = your own)
+/friend @user  send a friend request
+/accept @user  accept an incoming friend request
+/reject @user  reject an incoming friend request
+/unfriend @user remove a friend
+/friends       show your friends + pending requests
+/post          write a post on your profile
+/sign @user    sign a friend's guestbook
+```
+
+### Leaderboard
+
+```
+/leaderboard       open the token-usage leaderboard
+/leaderboard-join  how to add yourself to the leaderboard
+```
+
+### Appearance
+
+```
+/theme <id>  switch color theme (run with no arg to list)
+```
+
+### Auth
+
+```
+/auth      link your GitHub account
+/logout    unlink your GitHub account
+```
+
+### Misc
+
+```
+/help  show all commands
 ```
 
 Aliases: `/exit` / `/bye` → `/quit`, `/part` → `/leave`, `/channels` → `/list`,
@@ -100,8 +139,8 @@ go run .
 ```
 
 Without that env var, `/auth` reports it isn't configured and the rest of the
-app (chat, profiles, posts, friends) runs against the local SQLite DB without
-any GitHub link. The identity store lives next to the DB under
+app (chat, profiles, posts, friends, leaderboard) runs against the local SQLite
+DB without any GitHub link. The identity store lives next to the DB under
 `$XDG_CONFIG_HOME/vibespace/` (macOS: `~/Library/Application Support/vibespace/`).
 
 Local mode has no SSH layer, so the "fingerprint" stored alongside your
@@ -109,16 +148,23 @@ GitHub login is synthesized from your OS username (`local:<username>`). It's
 stable across runs on the same machine but not portable between machines —
 log in on a different laptop and you'll re-run `/auth`.
 
+### Themes
+
+Run `/theme` (no args) to list available themes. Set a theme with `/theme <id>`.
+Themes are Catppuccin-inspired palettes rendered with lipgloss.
+
 ---
 
 ## Keyboard
 
-- `enter` — send / run slash command
-- `tab` / `shift+tab` — cycle autocomplete
-- `↑` / `↓` — recall message history (or move palette selection when open)
-- `pgup` / `pgdn` — scroll the scrollback
-- `esc` — clear input / dismiss palette
-- `ctrl+c` — quit
+| Key | Action |
+| --- | --- |
+| `enter` | send / run slash command |
+| `tab` / `shift+tab` | cycle autocomplete |
+| `↑` / `↓` | recall message history (or move palette selection when open) |
+| `pgup` / `pgdn` | scroll the scrollback |
+| `esc` | clear input / dismiss palette |
+| `ctrl+c` | quit |
 
 ---
 
@@ -127,8 +173,11 @@ log in on a different laptop and you'll re-run `/auth`.
 ```
 vibespace/
 ├── main.go                 # entrypoint, wires app to bubbletea
+├── cmd/server/             # SSH server entrypoint
+├── scripts/                # install.sh, leaderboard tracker
+├── install.sh              # curl-based installer
 └── internal/
-    ├── theme/              # Catppuccin palette, shared styles, logo
+    ├── theme/              # theme registry, Catppuccin palettes, shared styles
     ├── ui/                 # layout + text + chat helpers
     ├── hub/                # shared channel/message state (server mode)
     ├── identity/           # SSH fingerprint -> GitHub login store
@@ -137,7 +186,9 @@ vibespace/
     ├── screens/
     │   ├── screen.go       # Screen interface + Navigate messages
     │   ├── intro/          # boot animation
-    │   └── lobby/          # chat, slash commands, autocomplete, /auth modal
+    │   ├── lobby/          # chat, slash commands, autocomplete, /auth modal
+    │   ├── profile/        # profile view
+    │   └── leaderboard/    # token-usage leaderboard
     └── app/                # router, header, footer, top-level View
 ```
 
