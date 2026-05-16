@@ -26,7 +26,7 @@ import (
 // vibespace.sh (the box's OpenSSH is on a different port — see
 // scripts/deploy.sh). Local-mode servers run on :2222 by default; users
 // connecting to localhost should pass --server=localhost:2222.
-const defaultServer = "vibespace.sh:22022"
+const defaultServer = "vibespace.sh"
 
 // Run executes the report subcommand. args is the slice of flag args (i.e.
 // os.Args[2:] after the "report" verb). Exits the process with a non-zero

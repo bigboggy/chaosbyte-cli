@@ -20,7 +20,7 @@
 #
 # Environment overrides:
 #   VIBESPACE_INSTALL_DIR   where the binary lands (default: ~/.local/bin)
-#   VIBESPACE_SERVER        upload target (default: vibespace.sh:22022)
+#   VIBESPACE_SERVER        upload target (default: vibespace.sh)
 #   VIBESPACE_VERSION       pin a specific release tag (default: latest)
 #   VIBESPACE_NO_SCHEDULE   set to "1" to skip scheduler setup
 
@@ -29,7 +29,7 @@ set -euo pipefail
 REPO="bigboggy/vibespace"
 BINARY="vibespace"
 INSTALL_DIR="${VIBESPACE_INSTALL_DIR:-$HOME/.local/bin}"
-SERVER="${VIBESPACE_SERVER:-vibespace.sh:22022}"
+SERVER="${VIBESPACE_SERVER:-vibespace.sh}"
 VERSION="${VIBESPACE_VERSION:-latest}"
 
 # ── pretty output ──────────────────────────────────────────────────────────
